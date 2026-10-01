@@ -1,6 +1,7 @@
 .venv/
 __pycache__/
 .pytest_cache/
+.pytest_tmp_*/
 .ruff_cache/
 results/
 .cache/

@@ -113,7 +113,7 @@ def _load_step(source: Path) -> trimesh.Trimesh:
         face = TopoDS.Face_s(explorer.Current())
         location = TopLoc_Location()
         triangulation = BRep_Tool.Triangulation_s(face, location)
-        if triangulation is None or triangulation.IsNull():
+        if triangulation is None or triangulation.NbTriangles() == 0:
             raise GeometryError(f"OpenCascade could not tessellate a STEP face: {source}")
         transform = location.Transformation()
         offset = len(vertices)
@@ -185,8 +185,12 @@ def _quality(
     source_volume_mm3 = float(original_mm.volume)
     hull_volume_mm3 = float(original_mm.convex_hull.volume)
     summed_volume_mm3 = float(sum(part.volume for part in parts) * 1e9)
-    bounds = np.vstack([part.bounds for part in parts])
-    collision_bounds = np.vstack([bounds[:, :3].min(axis=0), bounds[:, 3:].max(axis=0)])
+    collision_bounds = np.vstack(
+        [
+            np.min([part.bounds[0] for part in parts], axis=0),
+            np.max([part.bounds[1] for part in parts], axis=0),
+        ]
+    )
     return {
         "method": method,
         "source_volume_mm3": source_volume_mm3,
@@ -243,6 +247,7 @@ def prepare_part(source: Path, cache_dir: Path, density_g_cm3: float) -> Prepare
     settings = {
         "version": _CACHE_VERSION,
         "source_sha256": source_sha,
+        "source_format": source.suffix.lower(),
         "density_g_cm3": float(density_g_cm3),
         "step_linear_deflection_mm": _STEP_LINEAR_DEFLECTION_MM,
         "step_angular_deflection_rad": _STEP_ANGULAR_DEFLECTION_RAD,

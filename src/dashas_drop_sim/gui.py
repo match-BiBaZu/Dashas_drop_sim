@@ -17,6 +17,7 @@ import time
 from typing import Any
 
 from PyQt6.QtCore import QProcess, QTimer, Qt
+from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import (
     QApplication,
     QDoubleSpinBox,
@@ -32,6 +33,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSpinBox,
+    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
@@ -75,7 +77,10 @@ class DropSimulationWindow(QMainWindow):
         self._stdout_buffer = ""
         self._stderr_buffer = ""
         self._cancel_requested = False
+        self._close_when_finished = False
         self._run_started_at = 0.0
+        self._output_dir: Path | None = None
+        self._run_dir: Path | None = None
         self._mode = ""
         self._build_ui()
 
@@ -169,11 +174,43 @@ class DropSimulationWindow(QMainWindow):
         layout.addWidget(self.status_label)
         layout.addWidget(self.progress)
 
+        self.tabs = QTabWidget()
+        frequency_tab = QWidget()
+        frequency_layout = QVBoxLayout(frequency_tab)
         self.result_table = QTableWidget(0, 5)
         self.result_table.setHorizontalHeaderLabels(["Pose / Status", "Anzahl", "Anteil", "KI unten", "KI oben"])
         self.result_table.horizontalHeader().setStretchLastSection(True)
         self.result_table.setMinimumHeight(180)
-        layout.addWidget(self.result_table)
+        frequency_layout.addWidget(self.result_table)
+        self.tabs.addTab(frequency_tab, "Häufigkeit")
+
+        stability_tab = QWidget()
+        stability_layout = QVBoxLayout(stability_tab)
+        stability_layout.addWidget(QLabel("Rangfolge nach Fläche unter der Störkurve (0–1)"))
+        self.stability_rank_table = QTableWidget(0, 4)
+        self.stability_rank_table.setHorizontalHeaderLabels(["Rang", "Pose", "AUC", "Vollständig"])
+        self.stability_rank_table.horizontalHeader().setStretchLastSection(True)
+        self.stability_rank_table.setMinimumHeight(120)
+        stability_layout.addWidget(self.stability_rank_table)
+        stability_layout.addWidget(QLabel("Pose-Erhalt je Störstufe; die Störstufe entspricht einer Hubenergie."))
+        self.stability_curve_table = QTableWidget(0, 7)
+        self.stability_curve_table.setHorizontalHeaderLabels(
+            ["Pose", "Störstufe (mm)", "Energie (J)", "Erhalten", "Richtungen", "Anteil", "Vollständig"]
+        )
+        self.stability_curve_table.horizontalHeader().setStretchLastSection(True)
+        self.stability_curve_table.setMinimumHeight(180)
+        stability_layout.addWidget(self.stability_curve_table)
+        self.tabs.addTab(stability_tab, "Stabilität")
+
+        preview_tab = QWidget()
+        preview_layout = QVBoxLayout(preview_tab)
+        self.preview_table = QTableWidget(0, 2)
+        self.preview_table.setHorizontalHeaderLabels(["Merkmal", "Wert"])
+        self.preview_table.horizontalHeader().setStretchLastSection(True)
+        self.preview_table.setMinimumHeight(180)
+        preview_layout.addWidget(self.preview_table)
+        self.tabs.addTab(preview_tab, "Einzelfall")
+        layout.addWidget(self.tabs)
 
         self.log = QTextEdit()
         self.log.setReadOnly(True)
@@ -270,10 +307,16 @@ class DropSimulationWindow(QMainWindow):
 
         self._mode = mode
         self._run_started_at = time.time()
+        self._output_dir = config.output_dir
+        self._run_dir = None
         self._stdout_buffer = ""
         self._stderr_buffer = ""
         self._cancel_requested = False
         self.result_table.setRowCount(0)
+        self.stability_rank_table.setRowCount(0)
+        self.stability_curve_table.setRowCount(0)
+        self.preview_table.setRowCount(0)
+        self.tabs.setCurrentIndex(2 if mode == "preview" else 0)
         self.progress.setRange(0, 0 if mode == "preview" else config.trials)
         self.progress.setValue(0)
         self.status_label.setText("Einzelfall läuft …" if mode == "preview" else "Falltests laufen …")
@@ -307,6 +350,14 @@ class DropSimulationWindow(QMainWindow):
         self._log_line("Abbruch angefordert; laufender Versuch darf abschließen.")
         process.write(b"stop\n")
         QTimer.singleShot(15_000, self._force_stop_if_needed)
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        if self._process is not None:
+            self._close_when_finished = True
+            self._cancel()
+            event.ignore()
+            return
+        event.accept()
 
     def _force_stop_if_needed(self) -> None:
         process = self._process
@@ -363,6 +414,18 @@ class DropSimulationWindow(QMainWindow):
             except (TypeError, ValueError):
                 pass
             return True
+        if kind == "stability_progress":
+            try:
+                completed = int(event["completed"])
+                total = int(event["total"])
+                self.progress.setRange(0, max(1, total))
+                self.progress.setValue(completed)
+                self.status_label.setText(
+                    f"Störversuche für Pose {event.get('pose_id', '?')}: {completed} / {total}"
+                )
+            except (KeyError, TypeError, ValueError):
+                self._log_line(str(event))
+            return True
         if kind in {"result", "pose_frequency"}:
             self._set_result_rows([event], append=True)
             return True
@@ -370,6 +433,11 @@ class DropSimulationWindow(QMainWindow):
             rows = self._extract_rows(event)
             if rows:
                 self._set_result_rows(rows)
+            if event.get("run_dir"):
+                self._run_dir = Path(str(event["run_dir"]))
+                self._log_line(f"Ergebnisordner: {self._run_dir}")
+            if event.get("summary") and isinstance(event["summary"], str):
+                self._log_line(f"Zusammenfassung: {event['summary']}")
             if event.get("message"):
                 self._log_line(str(event["message"]))
             return True
@@ -415,11 +483,18 @@ class DropSimulationWindow(QMainWindow):
         if self._process is not None:
             self._process.deleteLater()
             self._process = None
+        if self._close_when_finished:
+            self.close()
 
     def _load_result_file(self) -> None:
         """Show the newest summary from this run, even when CLI emits plain text."""
-        base = Path(self.output_edit.text().strip()).expanduser()
+        base = self._run_dir or self._output_dir
+        if base is None:
+            return
         if not base.is_dir():
+            return
+        if self._mode == "preview":
+            self._load_preview(base)
             return
         candidates = list(base.glob("summary.json")) + list(base.glob("*/summary.json"))
         candidates += list(base.glob("frequencies.csv")) + list(base.glob("*/frequencies.csv"))
@@ -435,9 +510,105 @@ class DropSimulationWindow(QMainWindow):
                 if rows:
                     self._set_result_rows(rows)
                     self._log_line(f"Ergebnisse: {path}")
-                    return
+                    break
             except (OSError, ValueError, TypeError) as exc:
                 self._log_line(f"Ergebnistabelle konnte nicht gelesen werden: {exc}")
+        self._load_stability(base)
+
+    def _load_preview(self, base: Path) -> None:
+        candidates = list(base.glob("preview.json")) + list(base.glob("*/preview.json"))
+        candidates = [path for path in candidates if path.stat().st_mtime >= self._run_started_at - 2]
+        for path in sorted(candidates, key=lambda item: item.stat().st_mtime, reverse=True):
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                if not isinstance(data, dict):
+                    continue
+                fields = (
+                    ("Status", data.get("status")),
+                    ("Roadmap-Pose", data.get("roadmap_pose_id")),
+                    ("Zuordnung", data.get("match_status")),
+                    ("Abstand zur Roadmap-Pose (°)", data.get("match_distance_deg")),
+                    ("Seed", data.get("seed")),
+                    ("Simulationszeit (s)", data.get("sim_time_s")),
+                    ("Weg (mm)", data.get("travel_mm")),
+                    ("Erstes Einpendeln (s)", data.get("first_settled_s")),
+                    ("Endposition in Rutschenachsen (mm)", data.get("final_pos_chute_mm")),
+                    ("Endorientierung xyzw", data.get("final_quat_xyzw")),
+                    ("Bandkontakt am Endpunkt", data.get("final_floor_contact")),
+                    ("Wandkontakt am Endpunkt", data.get("final_wall_contact")),
+                )
+                self.preview_table.setRowCount(0)
+                for label, value in fields:
+                    index = self.preview_table.rowCount()
+                    self.preview_table.insertRow(index)
+                    if isinstance(value, float):
+                        display = f"{value:.4f}"
+                    elif isinstance(value, list):
+                        display = ", ".join(f"{item:.4f}" if isinstance(item, (int, float)) else str(item)
+                                            for item in value)
+                    else:
+                        display = "–" if value is None else str(value)
+                    self.preview_table.setItem(index, 0, QTableWidgetItem(label))
+                    self.preview_table.setItem(index, 1, QTableWidgetItem(display))
+                self.preview_table.resizeColumnToContents(0)
+                self.tabs.setCurrentIndex(2)
+                self._log_line(f"Einzelfall: {path}")
+                return
+            except (OSError, ValueError, TypeError) as exc:
+                self._log_line(f"Einzelfall konnte nicht gelesen werden: {exc}")
+
+    def _load_stability(self, base: Path) -> None:
+        def csv_rows(filename: str) -> list[dict[str, Any]] | None:
+            candidates = list(base.glob(filename)) + list(base.glob(f"*/{filename}"))
+            candidates = [path for path in candidates if path.stat().st_mtime >= self._run_started_at - 2]
+            for path in sorted(candidates, key=lambda item: item.stat().st_mtime, reverse=True):
+                try:
+                    with path.open("r", encoding="utf-8-sig", newline="") as stream:
+                        rows = list(csv.DictReader(stream))
+                    self._log_line(f"Stabilitätsdaten: {path}")
+                    return rows
+                except OSError as exc:
+                    self._log_line(f"Stabilitätsdaten konnten nicht gelesen werden: {exc}")
+            return None
+
+        ranking = csv_rows("stability_summary.csv")
+        curves = csv_rows("stability.csv")
+        if ranking is None or curves is None:
+            candidates = list(base.glob("summary.json")) + list(base.glob("*/summary.json"))
+            for path in sorted(candidates, key=lambda item: item.stat().st_mtime, reverse=True):
+                try:
+                    summary = json.loads(path.read_text(encoding="utf-8"))
+                    if isinstance(summary, dict):
+                        ranking = ranking if ranking is not None else summary.get("stability_ranking", [])
+                        curves = curves if curves is not None else summary.get("stability_curves", [])
+                        break
+                except (OSError, ValueError):
+                    continue
+        self._fill_stability_table(
+            self.stability_rank_table,
+            ranking or [],
+            ("rank", "pose_id", "retention_auc", "complete"),
+        )
+        self._fill_stability_table(
+            self.stability_curve_table,
+            curves or [],
+            ("pose_id", "energy_lift_mm", "energy_j", "retained_count",
+             "direction_count", "retention", "complete"),
+        )
+
+    @staticmethod
+    def _fill_stability_table(table: QTableWidget, rows: list[dict[str, Any]], keys: tuple[str, ...]) -> None:
+        table.setRowCount(0)
+        for row in rows:
+            index = table.rowCount()
+            table.insertRow(index)
+            for column, key in enumerate(keys):
+                value = row.get(key, "")
+                if value is None:
+                    value = ""
+                elif isinstance(value, float):
+                    value = f"{value:.4f}"
+                table.setItem(index, column, QTableWidgetItem(str(value)))
 
     @staticmethod
     def _extract_rows(data: Any) -> list[dict[str, Any]]:

@@ -1,0 +1,199 @@
+"""End-to-end persistence, status accounting, and cancellation checks."""
+
+from __future__ import annotations
+
+import csv
+import json
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+import trimesh
+
+from dashas_drop_sim.cli import _config
+from dashas_drop_sim.config import RunConfig
+from dashas_drop_sim.pose_matching import PoseMatch
+from dashas_drop_sim.runner import (
+    _assign_unknown_clusters,
+    _frequency_rows,
+    _same_pose,
+    run_experiment,
+)
+
+
+@pytest.fixture
+def cube(tmp_path: Path) -> Path:
+    source = tmp_path / "cube.stl"
+    trimesh.creation.box(extents=[20, 20, 20]).export(source)
+    return source
+
+
+def _short_config(source: Path, *, output_dir: Path | None = None) -> RunConfig:
+    return RunConfig(
+        mesh_path=source,
+        output_dir=output_dir or source.parent / "results",
+        trials=1,
+        seed=42,
+        belt_speed_mm_s=100,
+        drop_height_mm=0,
+        length_mm=500,
+        disturbance_levels_mm=(0,),
+    )
+
+
+def _csv_rows(path: Path) -> list[dict[str, str]]:
+    with path.open(encoding="utf-8", newline="") as stream:
+        return list(csv.DictReader(stream))
+
+
+def test_short_real_cube_run_persists_unknown_pose_and_outputs(cube: Path) -> None:
+    result = run_experiment(_short_config(cube))
+    run_dir = result.run_dir
+    for filename in (
+        "config.json", "manifest.json", "trials.jsonl", "trials.csv",
+        "frequencies.csv", "disturbances.csv", "stability.csv",
+        "stability_summary.csv", "summary.json",
+    ):
+        assert (run_dir / filename).is_file(), filename
+
+    trial_csv = _csv_rows(run_dir / "trials.csv")
+    trial_jsonl = [json.loads(line) for line in (run_dir / "trials.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert len(trial_csv) == len(trial_jsonl) == 1
+    assert trial_csv[0]["status"] == trial_jsonl[0]["status"] == "settled"
+    assert trial_csv[0]["match_status"] == trial_jsonl[0]["match_status"] == "unmatched"
+    assert trial_csv[0]["pose_key"] == trial_jsonl[0]["pose_key"] == "unknown_001"
+    assert trial_jsonl[0]["roadmap_pose_id"] is None
+
+    frequencies = _csv_rows(run_dir / "frequencies.csv")
+    assert len(frequencies) == 1
+    assert frequencies[0]["pose_id"] == "unknown_001"
+    assert int(frequencies[0]["count"]) == 1
+    assert float(frequencies[0]["probability"]) == 1
+    assert result.summary["completed_trials"] == result.summary["settled_trials"] == 1
+    assert result.summary["pose_frequencies"][0]["pose_id"] == "unknown_001"
+    assert "0.5 m" in result.summary["interpretation"]
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["mesh_source_sha256"]
+    assert manifest["mesh_triangles_sha256"]
+    assert manifest["roadmap_sha256"] is None
+    assert result.summary["disturbance_trials"] == 1
+
+
+def test_same_seed_repeats_release_and_end_state(cube: Path) -> None:
+    config = _short_config(cube)
+    first = run_experiment(config)
+    second = run_experiment(config)
+
+    first_trial = json.loads((first.run_dir / "trials.jsonl").read_text(encoding="utf-8"))
+    second_trial = json.loads((second.run_dir / "trials.jsonl").read_text(encoding="utf-8"))
+    for field in ("seed", "status", "initial_quat_xyzw", "final_quat_xyzw", "final_qpos", "pose_key"):
+        assert first_trial[field] == second_trial[field]
+    assert first.summary["pose_frequencies"] == second.summary["pose_frequencies"]
+
+
+def test_cancel_before_first_trial_writes_valid_partial_result(cube: Path) -> None:
+    result = run_experiment(_short_config(cube), cancel=lambda: True)
+
+    assert result.summary["cancelled"] is True
+    assert result.summary["completed_trials"] == 0
+    assert result.summary["pose_frequencies"] == []
+    assert (result.run_dir / "trials.jsonl").read_text(encoding="utf-8") == ""
+    assert _csv_rows(result.run_dir / "trials.csv") == []
+    assert json.loads((result.run_dir / "summary.json").read_text(encoding="utf-8")) == result.summary
+
+
+def test_cancel_after_one_trial_preserves_completed_trial(cube: Path) -> None:
+    config = _short_config(cube)
+    config.trials = 2
+    stopped = False
+
+    def emit(event: dict) -> None:
+        nonlocal stopped
+        if event.get("event") == "progress" and event.get("completed") == 1:
+            stopped = True
+
+    result = run_experiment(config, emit=emit, cancel=lambda: stopped)
+    records = [json.loads(line) for line in (result.run_dir / "trials.jsonl").read_text(encoding="utf-8").splitlines()]
+
+    assert result.summary["cancelled"] is True
+    assert result.summary["completed_trials"] == len(records) == 1
+    assert result.summary["disturbance_trials"] == 0
+    assert records[0]["pose_key"] == "unknown_001"
+
+
+def test_unsettled_trial_is_counted_without_pose_assignment() -> None:
+    row = {
+        "status": "unsettled", "match_status": "not_evaluated",
+        "roadmap_pose_id": None, "pose_key": None,
+        "final_quat_xyzw": [0, 0, 0, 1],
+    }
+
+    class NoClustering:
+        def cluster_unmatched(self, _quaternions):
+            assert _quaternions == []
+            return []
+
+    _assign_unknown_clusters([row], NoClustering())
+    frequencies = _frequency_rows([row], total=1)
+    assert row["pose_key"] is None
+    assert frequencies == [{
+        "pose_id": "unsettled", "category": "unassigned", "count": 1,
+        "probability": 1.0, "ci_low": pytest.approx(0.20654931437723745),
+        "ci_high": 1.0,
+    }]
+
+
+def test_unknown_disturbance_reaching_known_roadmap_pose_is_not_retained() -> None:
+    source = {
+        "match_status": "unmatched", "roadmap_pose_id": None,
+        "final_quat_xyzw": [0, 0, 0, 1],
+    }
+    outcome = SimpleNamespace(status="settled", final_quat_xyzw=(0.02, 0, 0, 0.9998))
+
+    class CrossingResolver:
+        def resolve(self, _quat):
+            return PoseMatch("matched", 7, 2.0)
+
+        def cluster_unmatched(self, _quaternions):
+            return [0, 0]
+
+    assert _same_pose(source, outcome, CrossingResolver()) is False
+
+
+def test_stable_intermediate_pose_change_counts_as_lost_even_if_end_returns() -> None:
+    source = {"match_status": "matched", "roadmap_pose_id": 3,
+              "final_quat_xyzw": [0, 0, 0, 1]}
+    outcome = SimpleNamespace(
+        status="settled", final_quat_xyzw=(0, 0, 0, 1),
+        settled_trace_quat_xyzw=((0, 0, 0, 1), (1, 0, 0, 0), (0, 0, 0, 1)),
+    )
+
+    class TwoPoses:
+        def resolve(self, quat):
+            return PoseMatch("matched", 7 if quat[0] else 3, 0.0)
+
+    assert _same_pose(source, outcome, TwoPoses()) is False
+
+
+def test_known_roadmap_pose_without_hits_has_zero_count_and_interval() -> None:
+    rows = [{"status": "unsettled", "match_status": "not_evaluated",
+             "roadmap_pose_id": None, "pose_key": "unsettled"}]
+    frequencies = _frequency_rows(rows, total=1, known_pose_ids=(3,))
+    zero = next(row for row in frequencies if row["pose_id"] == "3")
+    assert zero["category"] == "pose"
+    assert zero["count"] == 0
+    assert zero["ci_low"] == 0
+    assert zero["ci_high"] > 0
+
+
+def test_cli_config_resolves_paths_relative_to_config_file(cube: Path) -> None:
+    config_path = cube.parent / "config.json"
+    config_path.write_text(json.dumps({
+        "mesh_path": cube.name,
+        "output_dir": "results",
+        "trials": 1,
+    }), encoding="utf-8")
+
+    config = _config(config_path)
+    assert config.mesh_path == cube
+    assert config.output_dir == cube.parent / "results"
