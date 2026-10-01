@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dashas-drop-sim"
+version = "0.1.0"
+description = "Reproducible rigid-body drop tests for parts in the BiBaZu L chute"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "coacd==1.0.14",
+    "mujoco==3.14.0",
+    "numpy>=1.26,<3",
+    "pyyaml>=6,<7",
+    "scipy>=1.11,<2",
+    "trimesh>=4,<6",
+]
+
+[project.optional-dependencies]
+gui = ["PyQt6>=6.7,<7"]
+step = ["cadquery-ocp>=7.8,<8"]
+roadmap = ["bibazu-chute-pose @ git+https://github.com/match-BiBaZu/bibazu_geometry_to_pose.git@94cffbca9e4a227beea266bb098f8186e1d1029d"]
+dev = ["pytest>=8,<10"]
+
+[project.scripts]
+dashas-drop-sim = "dashas_drop_sim.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dashas_drop_sim"]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
