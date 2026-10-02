@@ -29,6 +29,7 @@ def test_catalogue_dropdown_keeps_browse_path_and_1300_mm_default() -> None:
         assert window.mesh_edit.text() == str(models["Qk1a"])
         assert window.length_spin.value() == 1300
         assert window.workers_spin.value() >= 1
+        assert window.preview_button.text() == "Falltests sichtbar starten"
     finally:
         window.close()
         del app
@@ -73,6 +74,27 @@ def test_result_row_opens_pose_image_dialog(tmp_path: Path, monkeypatch) -> None
             "representative_source": "catalogue",
         })
         assert titles == ["Pose unknown_001", "Pose 8"]
+    finally:
+        window.close()
+        del app
+
+
+def test_visible_series_event_updates_last_trial(tmp_path: Path) -> None:
+    app = QApplication.instance() or QApplication([])
+    window = DropSimulationWindow()
+    try:
+        window._mode = "watch"
+        assert window._handle_event({"event": "started", "run_dir": str(tmp_path)})
+        assert window._run_dir == tmp_path
+        assert window._handle_event({
+            "event": "progress", "completed": 2, "total": 3,
+            "record": {"trial": 1, "status": "settled", "seed": 123,
+                       "final_quat_xyzw": [0, 0, 0, 1]},
+        })
+        assert window.progress.value() == 2
+        assert window._preview_record["trial"] == 1
+        assert window.preview_image_button.isEnabled()
+        assert window.preview_table.item(0, 1).text() == "2"
     finally:
         window.close()
         del app

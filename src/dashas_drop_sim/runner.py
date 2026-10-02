@@ -301,10 +301,17 @@ def build_manifest(config: RunConfig, part: PreparedPart, resolver: PoseResolver
 def run_experiment(
     config: RunConfig, *, emit: EventCallback | None = None,
     cancel: CancelCallback | None = None,
+    visible: bool = False,
 ) -> RunResult:
     config.validate()
     emit = emit or (lambda _event: None)
-    cancel = cancel or (lambda: False)
+    requested_cancel = cancel or (lambda: False)
+    viewer_closed = False
+
+    def should_cancel() -> bool:
+        return requested_cancel() or viewer_closed
+
+    cancel = should_cancel
     run_dir = _new_run_dir(config.output_dir, config.seed)
     _write_json(run_dir / "config.json", config.to_dict())
     part = prepare_part(config.mesh_path, config.output_dir / ".mesh_cache", config.density_g_cm3)
@@ -313,6 +320,7 @@ def run_experiment(
                             cache_dir=config.output_dir / ".pose_cache")
     simulator = ChuteSimulator(config, part)
     _write_json(run_dir / "manifest.json", build_manifest(config, part, resolver))
+    emit({"event": "started", "run_dir": str(run_dir), "visible": visible})
 
     child_seeds = np.random.SeedSequence(config.seed).spawn(config.trials)
     jobs = [(index, int(child.generate_state(1, dtype=np.uint32)[0]))
@@ -332,8 +340,35 @@ def run_experiment(
             stream.write(json.dumps(row, ensure_ascii=False) + "\n")
             stream.flush()
             emit({"event": "progress", "completed": len(rows), "total": config.trials,
-                  "status": outcome.status})
-        if config.workers > 1 and len(jobs) > 1 and not cancel():
+                  "trial": outcome.trial, "status": outcome.status,
+                  "roadmap_pose_id": row["roadmap_pose_id"],
+                  "record": {key: row[key] for key in (
+                      "trial", "seed", "status", "match_status", "roadmap_pose_id",
+                      "match_distance_deg", "sim_time_s", "travel_mm", "first_settled_s",
+                      "final_pos_chute_mm", "final_quat_xyzw", "final_floor_contact",
+                      "final_wall_contact",
+                  )}})
+        if visible and not cancel():
+            import mujoco.viewer
+
+            with mujoco.viewer.launch_passive(simulator.model, simulator.data) as viewer:
+                viewer.cam.distance = max(0.4, min(config.length_mm / 1000 * 0.6, 2.0))
+
+                def watch_cancel() -> bool:
+                    nonlocal viewer_closed
+                    if not viewer.is_running():
+                        viewer_closed = True
+                    return cancel()
+
+                for index, trial_seed in jobs:
+                    if watch_cancel():
+                        break
+                    outcome = simulator.drop(index, trial_seed, cancel=watch_cancel,
+                                             viewer=viewer)
+                    if outcome.status == "cancelled":
+                        break
+                    record_drop(outcome)
+        elif config.workers > 1 and len(jobs) > 1 and not cancel():
             with SimulationPool(config, part) as pool:
                 for _job, outcome in pool.run(jobs, drop_job, cancel):
                     record_drop(outcome)

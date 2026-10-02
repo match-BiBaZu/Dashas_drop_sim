@@ -34,9 +34,20 @@ Ein einzelner Versuch mit sichtbarer MuJoCo-Ansicht:
 uv run dashas-drop-sim preview --config config.json --trial 0
 ```
 
-Die GUI bietet dieselben Eingaben und startet Serien ohne laufende 3D-Ansicht.
-Der Knopf **Einzelfall anzeigen** öffnet die Ansicht für einen Fall. Eine Serie
-kann über **Abbrechen** nach dem laufenden Versuch beendet werden.
+Eine ganze Serie mit durchgehend geöffneter MuJoCo-Ansicht:
+
+```powershell
+uv run dashas-drop-sim watch --config config.json
+```
+
+In der GUI startet **Simulation starten** die Serie ohne 3D-Ansicht.
+**Falltests sichtbar starten** zeigt alle eingestellten Abwürfe nacheinander
+im selben MuJoCo-Fenster; der Reiter **Letzter Versuch** zeigt das jüngste
+Ergebnis. Ein geschlossenes MuJoCo-Fenster oder **Abbrechen** beendet den Lauf
+mit den bis dahin gespeicherten Versuchen. Die anschließenden Störversuche
+laufen ohne 3D-Ansicht. Sichtbare Abwürfe laufen einzeln und ungefähr in
+Echtzeit; die Einstellung **Parallele Prozesse** gilt dabei nur für die
+Störversuche.
 Im Dropdown **Werkstückkatalog** stehen 39 STL-Modelle aus
 [`Werkstücke_STL_grob`](https://github.com/match-BiBaZu/bibazu_geometry_to_pose/tree/main/Werkst%C3%BCcke_STL_grob)
 als mitgelieferter, offline nutzbarer Stand `02d3fbcf` bereit. **Durchsuchen**
@@ -46,7 +57,7 @@ Roadmap beim Auswählen automatisch eingetragen. In der Häufigkeitstabelle
 öffnet **Bild** eine schematische 3D-Ansicht der Pose; beobachtete Endlagen und
 unbeobachtete Katalogorientierungen sind beschriftet.
 
-Serien und Störversuche laufen über getrennte MuJoCo-Prozesse auf mehreren
+Serien ohne 3D-Ansicht und Störversuche laufen über getrennte MuJoCo-Prozesse auf mehreren
 CPU-Kernen. Die GUI bietet dafür **Parallele Prozesse** (Vorgabe: bis zu vier).
 Jeder Versuch behält seinen eigenen Seed und Physikzustand; mit `1` läuft alles
 nacheinander. Der Gewinn hängt von der verfügbaren CPU-Leistung ab.

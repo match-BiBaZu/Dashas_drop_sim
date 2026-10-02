@@ -82,6 +82,8 @@ def main(argv: list[str] | None = None) -> int:
     commands.add_parser("gui", help="Start the PyQt6 user interface")
     run_parser = commands.add_parser("run", help="Run a headless batch and save CSV/JSON")
     run_parser.add_argument("--config", type=Path, required=True)
+    watch_parser = commands.add_parser("watch", help="Watch all drop trials in one MuJoCo window")
+    watch_parser.add_argument("--config", type=Path, required=True)
     preview_parser = commands.add_parser("preview", help="Show one seeded trial in a MuJoCo viewer")
     preview_parser.add_argument("--config", type=Path, required=True)
     preview_parser.add_argument("--trial", type=int, default=0)
@@ -95,7 +97,8 @@ def main(argv: list[str] | None = None) -> int:
         stopped = _cancel_event()
         if args.command == "preview":
             return _preview(config, args.trial, visible=not args.headless, stopped=stopped)
-        result = run_experiment(config, emit=_emit, cancel=stopped.is_set)
+        result = run_experiment(config, emit=_emit, cancel=stopped.is_set,
+                                visible=args.command == "watch")
         return 130 if result.summary["cancelled"] else 0
     except (OSError, TypeError, ValueError, RuntimeError, ImportError) as exc:
         print(f"Fehler: {exc}", file=sys.stderr, flush=True)

@@ -9,6 +9,8 @@ from types import SimpleNamespace
 
 import pytest
 import trimesh
+import mujoco.viewer
+import numpy as np
 
 from dashas_drop_sim.cli import _config
 from dashas_drop_sim.config import RunConfig
@@ -112,6 +114,84 @@ def test_parallel_drops_match_serial_seeded_results(cube: Path) -> None:
     assert serial.summary["pose_frequencies"] == parallel.summary["pose_frequencies"]
 
 
+def test_visible_series_reuses_viewer_and_matches_headless(cube: Path, monkeypatch) -> None:
+    class FakeViewer:
+        def __init__(self):
+            self.cam = SimpleNamespace(distance=0.0, lookat=np.zeros(3))
+            self.sync_count = 0
+            self.running = True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def sync(self):
+            self.sync_count += 1
+
+        def is_running(self):
+            return self.running
+
+    viewers = []
+
+    def launch(_model, _data):
+        viewer = FakeViewer()
+        viewers.append(viewer)
+        return viewer
+
+    monkeypatch.setattr(mujoco.viewer, "launch_passive", launch)
+    monkeypatch.setattr("dashas_drop_sim.physics.time.sleep", lambda _seconds: None)
+    config = _short_config(cube, output_dir=cube.parent / "watched")
+    config.trials = 2
+    config.workers = 2
+    watched = run_experiment(config, visible=True)
+    config.output_dir = cube.parent / "unwatched"
+    config.workers = 1
+    headless = run_experiment(config)
+    assert len(viewers) == 1
+    assert viewers[0].sync_count > 2
+    assert watched.summary["completed_trials"] == 2
+    watched_rows = [json.loads(line) for line in (watched.run_dir / "trials.jsonl").read_text().splitlines()]
+    headless_rows = [json.loads(line) for line in (headless.run_dir / "trials.jsonl").read_text().splitlines()]
+    assert watched_rows == headless_rows
+
+
+def test_closing_visible_viewer_keeps_completed_trials(cube: Path, monkeypatch) -> None:
+    class FakeViewer:
+        def __init__(self):
+            self.cam = SimpleNamespace(distance=0.0, lookat=np.zeros(3))
+            self.running = True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def sync(self):
+            pass
+
+        def is_running(self):
+            return self.running
+
+    viewer = FakeViewer()
+    monkeypatch.setattr(mujoco.viewer, "launch_passive", lambda _model, _data: viewer)
+    monkeypatch.setattr("dashas_drop_sim.physics.time.sleep", lambda _seconds: None)
+    config = _short_config(cube)
+    config.trials = 3
+
+    def emit(event: dict) -> None:
+        if event.get("event") == "progress" and event.get("completed") == 1:
+            viewer.running = False
+
+    result = run_experiment(config, emit=emit, visible=True)
+    assert result.summary["cancelled"] is True
+    assert result.summary["completed_trials"] == 1
+    assert result.summary["disturbance_trials"] == 0
+    assert len((result.run_dir / "trials.jsonl").read_text().splitlines()) == 1
+
+
 def test_parallel_cancellation_stops_new_drop_jobs(cube: Path) -> None:
     config = _short_config(cube)
     config.trials = 4
@@ -143,6 +223,7 @@ def test_cancel_before_first_trial_writes_valid_partial_result(cube: Path) -> No
 def test_cancel_after_one_trial_preserves_completed_trial(cube: Path) -> None:
     config = _short_config(cube)
     config.trials = 2
+    config.workers = 1
     stopped = False
 
     def emit(event: dict) -> None:

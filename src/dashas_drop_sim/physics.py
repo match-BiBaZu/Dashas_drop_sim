@@ -309,6 +309,8 @@ class ChuteSimulator:
         last_progress_x = start_x
         sample_stride = max(1, round(0.01 / cfg.timestep_s))
         settle_stride = max(1, round(0.05 / (sample_stride * cfg.timestep_s)))
+        viewer_stride = max(1, round(0.02 / cfg.timestep_s))
+        wall_start = time.perf_counter() if viewer is not None else 0.0
         status = "timeout"
         step = 0
         while data.time < max_time:
@@ -317,9 +319,16 @@ class ChuteSimulator:
                 break
             mujoco.mj_step(self.model, data)
             step += 1
-            if viewer is not None:
+            if viewer is not None and step % viewer_stride == 0 and viewer.is_running():
+                # Keep the same physics steps as a headless run, but show them
+                # at roughly real time without blocking on every single step.
+                viewer.cam.lookat[:] = self.R_world_chute @ np.array(
+                    [self._local_position(data)[0], 0.075, 0.075]
+                )
                 viewer.sync()
-                time.sleep(cfg.timestep_s)
+                remaining = data.time - (time.perf_counter() - wall_start)
+                if remaining > 0:
+                    time.sleep(remaining)
             if step % sample_stride:
                 continue
             if not np.all(np.isfinite(data.qpos)) or not np.all(np.isfinite(data.qvel)):
@@ -353,6 +362,8 @@ class ChuteSimulator:
         else:
             status = ("settled_stationary" if self._window_is_settled(history) else "unsettled_stationary") if belt_m_s == 0 else "timeout"
         final_pos = self._local_position(data)
+        if viewer is not None and viewer.is_running():
+            viewer.sync()
         floor, wall = self._contact_flags(data)
         if trace_stable and self._window_is_settled(history) and data.time > last_trace_time + 0.01:
             settled_trace.append(tuple(float(x) for x in self._local_quat(data)))
@@ -379,10 +390,13 @@ class ChuteSimulator:
         *,
         cancel: Callable[[], bool] | None = None,
         preview: bool = False,
+        viewer=None,
     ) -> TrialOutcome:
         rng = np.random.default_rng(seed)
         local_quat = Rotation.random(random_state=rng).as_quat()
         self._spawn(local_quat)
+        if preview and viewer is not None:
+            raise ValueError("preview and viewer cannot be combined")
         if preview:
             import mujoco.viewer
 
@@ -391,7 +405,8 @@ class ChuteSimulator:
                 viewer.cam.lookat[:] = self.data.qpos[:3]
                 return self._run_until_end(trial=index, seed=seed, initial_quat=local_quat,
                                            cancel=cancel, viewer=viewer)
-        return self._run_until_end(trial=index, seed=seed, initial_quat=local_quat, cancel=cancel)
+        return self._run_until_end(trial=index, seed=seed, initial_quat=local_quat,
+                                   cancel=cancel, viewer=viewer)
 
     def kick(
         self,

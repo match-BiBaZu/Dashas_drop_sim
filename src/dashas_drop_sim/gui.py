@@ -173,8 +173,9 @@ class DropSimulationWindow(QMainWindow):
         controls = QHBoxLayout()
         self.start_button = QPushButton("Simulation starten")
         self.start_button.clicked.connect(lambda: self._start("run"))
-        self.preview_button = QPushButton("Einzelfall anzeigen")
-        self.preview_button.clicked.connect(lambda: self._start("preview"))
+        self.preview_button = QPushButton("Falltests sichtbar starten")
+        self.preview_button.setToolTip("Alle Abwürfe nacheinander im selben MuJoCo-Fenster ansehen")
+        self.preview_button.clicked.connect(lambda: self._start("watch"))
         self.cancel_button = QPushButton("Abbrechen")
         self.cancel_button.setEnabled(False)
         self.cancel_button.clicked.connect(self._cancel)
@@ -231,7 +232,7 @@ class DropSimulationWindow(QMainWindow):
         self.preview_image_button.clicked.connect(self._show_preview_image)
         preview_layout.addWidget(self.preview_image_button)
         self._preview_record: dict[str, Any] | None = None
-        self.tabs.addTab(preview_tab, "Einzelfall")
+        self.tabs.addTab(preview_tab, "Letzter Versuch")
         layout.addWidget(self.tabs)
 
         self.log = QTextEdit()
@@ -362,10 +363,10 @@ class DropSimulationWindow(QMainWindow):
         self.preview_table.setRowCount(0)
         self.preview_image_button.setEnabled(False)
         self._preview_record = None
-        self.tabs.setCurrentIndex(2 if mode == "preview" else 0)
-        self.progress.setRange(0, 0 if mode == "preview" else config.trials)
+        self.tabs.setCurrentIndex(2 if mode == "watch" else 0)
+        self.progress.setRange(0, config.trials)
         self.progress.setValue(0)
-        self.status_label.setText("Einzelfall läuft …" if mode == "preview" else "Falltests laufen …")
+        self.status_label.setText("Sichtbare Falltests laufen …" if mode == "watch" else "Falltests laufen …")
         self.log.clear()
         self._log_line(f"Konfiguration: {config_path}")
         self.start_button.setEnabled(False)
@@ -375,8 +376,6 @@ class DropSimulationWindow(QMainWindow):
         process = QProcess(self)
         process.setProgram(sys.executable)
         args = ["-m", "dashas_drop_sim", mode, "--config", str(config_path)]
-        if mode == "preview":
-            args.extend(["--trial", "0"])
         process.setArguments(args)
         process.setProcessChannelMode(QProcess.ProcessChannelMode.SeparateChannels)
         process.readyReadStandardOutput.connect(self._read_stdout)
@@ -393,7 +392,7 @@ class DropSimulationWindow(QMainWindow):
         self._cancel_requested = True
         self.cancel_button.setEnabled(False)
         self.status_label.setText("Abbruch angefordert …")
-        self._log_line("Abbruch angefordert; laufender Versuch darf abschließen.")
+        self._log_line("Abbruch angefordert; bereits fertige Versuche bleiben gespeichert.")
         process.write(b"stop\n")
         QTimer.singleShot(15_000, self._force_stop_if_needed)
 
@@ -448,6 +447,11 @@ class DropSimulationWindow(QMainWindow):
 
     def _handle_event(self, event: dict[str, Any]) -> bool:
         kind = str(event.get("event", event.get("type", ""))).lower()
+        if kind == "started":
+            if event.get("run_dir"):
+                self._run_dir = Path(str(event["run_dir"]))
+                self._log_line(f"Ergebnisordner: {self._run_dir}")
+            return True
         if kind in {"progress", "trial", "trial_complete"}:
             trial = event.get("completed", event.get("trial"))
             total = event.get("total", event.get("trials"))
@@ -459,6 +463,8 @@ class DropSimulationWindow(QMainWindow):
                     self.status_label.setText(f"Versuch {int(trial)} / {self.progress.maximum()}")
             except (TypeError, ValueError):
                 pass
+            if self._mode == "watch" and isinstance(event.get("record"), dict):
+                self._show_trial_record(event["record"])
             return True
         if kind == "stability_progress":
             try:
@@ -515,11 +521,11 @@ class DropSimulationWindow(QMainWindow):
         self._stdout_buffer = ""
         self._stderr_buffer = ""
         self._load_result_file()
-        if self._cancel_requested:
+        if self._cancel_requested or code == 130:
             self.status_label.setText("Abgebrochen")
         elif status == QProcess.ExitStatus.NormalExit and code == 0:
-            self.status_label.setText("Einzelfall abgeschlossen" if self._mode == "preview" else "Simulation abgeschlossen")
-            if self._mode == "run":
+            self.status_label.setText("Simulation abgeschlossen")
+            if self._mode in {"run", "watch"}:
                 self.progress.setValue(self.progress.maximum())
         else:
             self.status_label.setText(f"Simulation fehlgeschlagen (Exitcode {code})")
@@ -569,41 +575,45 @@ class DropSimulationWindow(QMainWindow):
                 data = json.loads(path.read_text(encoding="utf-8"))
                 if not isinstance(data, dict):
                     continue
-                fields = (
-                    ("Status", data.get("status")),
-                    ("Roadmap-Pose", data.get("roadmap_pose_id")),
-                    ("Zuordnung", data.get("match_status")),
-                    ("Abstand zur Roadmap-Pose (°)", data.get("match_distance_deg")),
-                    ("Seed", data.get("seed")),
-                    ("Simulationszeit (s)", data.get("sim_time_s")),
-                    ("Weg (mm)", data.get("travel_mm")),
-                    ("Erstes Einpendeln (s)", data.get("first_settled_s")),
-                    ("Endposition in Rutschenachsen (mm)", data.get("final_pos_chute_mm")),
-                    ("Endorientierung xyzw", data.get("final_quat_xyzw")),
-                    ("Bandkontakt am Endpunkt", data.get("final_floor_contact")),
-                    ("Wandkontakt am Endpunkt", data.get("final_wall_contact")),
-                )
-                self.preview_table.setRowCount(0)
-                for label, value in fields:
-                    index = self.preview_table.rowCount()
-                    self.preview_table.insertRow(index)
-                    if isinstance(value, float):
-                        display = f"{value:.4f}"
-                    elif isinstance(value, list):
-                        display = ", ".join(f"{item:.4f}" if isinstance(item, (int, float)) else str(item)
-                                            for item in value)
-                    else:
-                        display = "–" if value is None else str(value)
-                    self.preview_table.setItem(index, 0, QTableWidgetItem(label))
-                    self.preview_table.setItem(index, 1, QTableWidgetItem(display))
-                self.preview_table.resizeColumnToContents(0)
-                self._preview_record = data
-                self.preview_image_button.setEnabled(bool(data.get("final_quat_xyzw")))
+                self._show_trial_record(data)
                 self.tabs.setCurrentIndex(2)
                 self._log_line(f"Einzelfall: {path}")
                 return
             except (OSError, ValueError, TypeError) as exc:
                 self._log_line(f"Einzelfall konnte nicht gelesen werden: {exc}")
+
+    def _show_trial_record(self, data: dict[str, Any]) -> None:
+        fields = (
+            ("Versuch", data["trial"] + 1 if isinstance(data.get("trial"), int) else None),
+            ("Status", data.get("status")),
+            ("Roadmap-Pose", data.get("roadmap_pose_id")),
+            ("Zuordnung", data.get("match_status")),
+            ("Abstand zur Roadmap-Pose (°)", data.get("match_distance_deg")),
+            ("Seed", data.get("seed")),
+            ("Simulationszeit (s)", data.get("sim_time_s")),
+            ("Weg (mm)", data.get("travel_mm")),
+            ("Erstes Einpendeln (s)", data.get("first_settled_s")),
+            ("Endposition in Rutschenachsen (mm)", data.get("final_pos_chute_mm")),
+            ("Endorientierung xyzw", data.get("final_quat_xyzw")),
+            ("Bandkontakt am Endpunkt", data.get("final_floor_contact")),
+            ("Wandkontakt am Endpunkt", data.get("final_wall_contact")),
+        )
+        self.preview_table.setRowCount(0)
+        for label, value in fields:
+            index = self.preview_table.rowCount()
+            self.preview_table.insertRow(index)
+            if isinstance(value, float):
+                display = f"{value:.4f}"
+            elif isinstance(value, list):
+                display = ", ".join(f"{item:.4f}" if isinstance(item, (int, float)) else str(item)
+                                    for item in value)
+            else:
+                display = "–" if value is None else str(value)
+            self.preview_table.setItem(index, 0, QTableWidgetItem(label))
+            self.preview_table.setItem(index, 1, QTableWidgetItem(display))
+        self.preview_table.resizeColumnToContents(0)
+        self._preview_record = data
+        self.preview_image_button.setEnabled(bool(data.get("final_quat_xyzw")))
 
     def _load_stability(self, base: Path) -> None:
         def csv_rows(filename: str) -> list[dict[str, Any]] | None:
@@ -703,7 +713,7 @@ class DropSimulationWindow(QMainWindow):
             return
         record = self._preview_record
         self._show_pose({
-            "pose_id": record.get("roadmap_pose_id") or "Einzelfall",
+            "pose_id": record.get("roadmap_pose_id") or "Versuch",
             "representative_quat_xyzw": record.get("final_quat_xyzw"),
             "representative_pos_chute_mm": record.get("final_pos_chute_mm"),
             "representative_source": "observed",
