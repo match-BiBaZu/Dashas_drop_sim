@@ -37,8 +37,22 @@ uv run dashas-drop-sim preview --config config.json --trial 0
 Die GUI bietet dieselben Eingaben und startet Serien ohne laufende 3D-Ansicht.
 Der Knopf **Einzelfall anzeigen** öffnet die Ansicht für einen Fall. Eine Serie
 kann über **Abbrechen** nach dem laufenden Versuch beendet werden.
-Bei 3 m Strecke dauern 100 Abwürfe und anschließend zwölf Störungen je positiver
-Stufe und gefundener Pose entsprechend länger; die GUI zeigt beide Fortschritte.
+Im Dropdown **Werkstückkatalog** stehen 39 STL-Modelle aus
+[`Werkstücke_STL_grob`](https://github.com/match-BiBaZu/bibazu_geometry_to_pose/tree/main/Werkst%C3%BCcke_STL_grob)
+als mitgelieferter, offline nutzbarer Stand `02d3fbcf` bereit. **Durchsuchen**
+bleibt für eigene STL- und STEP-Dateien verfügbar. Ist die lokale
+`bibazu_geometry_to_pose`-Arbeitskopie vorhanden, wird eine eindeutig passende
+Roadmap beim Auswählen automatisch eingetragen. In der Häufigkeitstabelle
+öffnet **Bild** eine schematische 3D-Ansicht der Pose; beobachtete Endlagen und
+unbeobachtete Katalogorientierungen sind beschriftet.
+
+Serien und Störversuche laufen über getrennte MuJoCo-Prozesse auf mehreren
+CPU-Kernen. Die GUI bietet dafür **Parallele Prozesse** (Vorgabe: bis zu vier).
+Jeder Versuch behält seinen eigenen Seed und Physikzustand; mit `1` läuft alles
+nacheinander. Der Gewinn hängt von der verfügbaren CPU-Leistung ab.
+Ein Vergleich mit acht Qk1a-Abwürfen auf 1,3 m dauerte hier 26,2 s mit einem
+Prozess und 13,2 s mit vier Prozessen. Einzelversuche, Häufigkeiten und
+Störresultate waren in beiden Läufen bytegleich.
 
 ## Eingaben
 
@@ -57,6 +71,7 @@ Beispiel für `config.json` (Pfade anpassen):
   "roadmap_path": "C:/Bauteile/Qk1a_roadmap.yaml",
   "output_dir": "C:/Falltests/Ergebnisse",
   "trials": 100,
+  "workers": 4,
   "seed": 42,
   "belt_speed_mm_s": 100.0,
   "drop_height_mm": 100.0,
@@ -66,7 +81,7 @@ Beispiel für `config.json` (Pfade anpassen):
   "mu_wall": 0.20,
   "alpha_deg": 45.0,
   "beta_deg": 0.0,
-  "length_mm": 3000.0,
+  "length_mm": 1300.0,
   "timestep_s": 0.001,
   "disturbance_levels_mm": [0.0, 0.05, 0.1, 0.2, 0.4, 0.8]
 }
@@ -111,6 +126,8 @@ Jede Serie erhält einen eigenen Ordner `run_<UTC-Zeitstempel>_<Seed>` unter
 
 Ein sichtbarer Einzelfall erhält einen eigenen Laufordner mit `config.json`,
 `manifest.json` und `preview.json` statt der Serientabellen.
+Die Häufigkeitstabelle enthält zu jeder darstellbaren Pose auch eine
+Beispielorientierung für den Bild-Button.
 
 Eine Pose wird nur als Treffer gezählt, wenn ihre Orientierung und
 Winkelgeschwindigkeit über ein Zeitfenster ruhig bleiben. Das Teil darf sich
@@ -128,9 +145,11 @@ Fallhäufigkeiten nicht verändert.
 
 ## Physikalische Annahmen und Grenzen
 
-- Die virtuelle Rutsche hat 45° Querneigung, 0° Längsneigung und 3 m
-  Beobachtungsstrecke. Die reale Rutsche ist 1,3 m lang. Häufigkeiten beziehen
-  sich deshalb auf die **virtuelle** Strecke und die gewählte Abwurfverteilung.
+- Die virtuelle Rutsche hat 45° Querneigung, 0° Längsneigung und standardmäßig
+  1,3 m Beobachtungsstrecke wie die reale Rutsche. Die Länge bleibt einstellbar.
+  Häufigkeiten beziehen sich immer auf die konfigurierte Strecke und
+  Abwurfverteilung. Ergebnisse alter 3-m-Läufe sind damit nicht direkt
+  vergleichbar.
 - PE-Band und PTFE-Wand sind jeweils 15 cm von der gemeinsamen Ecke bis zur
   freien Kante dargestellt. Idealisierte Kontaktflächen schließen seitliches
   Herunterfallen aus der Untersuchung aus.
@@ -145,7 +164,7 @@ Fallhäufigkeiten nicht verändert.
   relevante Varianten sollten Zeitschritt und Kontaktgeometrie verglichen
   werden.
 
-Ein erster Zeitschrittvergleich für Qk1a mit zehn gleichen Abwurf-Seeds ergab
+Ein erster Zeitschrittvergleich für Qk1a auf der vorherigen 3-m-Strecke mit zehn gleichen Abwurf-Seeds ergab
 bei 1 ms und 0,5 ms in **acht von zehn** Fällen dieselbe Roadmap-ID. Alle 20
 Läufe waren eingependelt; die zwei abweichenden Abwürfe gelangten in andere
 Rocking-Posen. Die beobachteten Häufigkeiten unterschieden sich je ID um

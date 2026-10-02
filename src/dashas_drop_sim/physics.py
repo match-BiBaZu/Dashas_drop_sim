@@ -264,21 +264,20 @@ class ChuteSimulator:
             return False
         if sum(sample[4] for sample in samples) < 0.25 * len(samples):
             return False
-        reference = Rotation.from_quat(samples[-1][1])
-        for _, quat, _, _, _ in samples:
-            if (reference.inv() * Rotation.from_quat(quat)).magnitude() > math.radians(1):
-                return False
+        quats = np.asarray([sample[1] for sample in samples], dtype=float)
+        dots = np.abs(quats @ quats[-1])
+        if np.any(dots < math.cos(math.radians(0.5))):
+            return False
         # Sign-align unit quaternions before averaging the first/last 100 ms.
         width = max(2, round(0.1 / 0.01))
-        def average_quat(segment: list[tuple]) -> np.ndarray:
-            quats = np.asarray([sample[1] for sample in segment], dtype=float)
-            quats *= np.sign(quats @ quats[0])[:, None]
-            mean = np.mean(quats, axis=0)
+        def average_quat(segment: np.ndarray) -> np.ndarray:
+            aligned = segment * np.where(segment @ segment[0] < 0, -1.0, 1.0)[:, None]
+            mean = np.mean(aligned, axis=0)
             return mean / np.linalg.norm(mean)
-        start = Rotation.from_quat(average_quat(samples[:width]))
-        end = Rotation.from_quat(average_quat(samples[-width:]))
+        start = average_quat(quats[:width])
+        end = average_quat(quats[-width:])
         duration = samples[-1][0] - samples[0][0]
-        filtered_omega = (start.inv() * end).magnitude() / duration
+        filtered_omega = 2 * math.acos(min(1.0, abs(float(start @ end)))) / duration
         if filtered_omega > 0.02:
             return False
         cross_positions = np.asarray([sample[2] for sample in samples])
@@ -309,6 +308,7 @@ class ChuteSimulator:
         last_progress_time = data.time
         last_progress_x = start_x
         sample_stride = max(1, round(0.01 / cfg.timestep_s))
+        settle_stride = max(1, round(0.05 / (sample_stride * cfg.timestep_s)))
         status = "timeout"
         step = 0
         while data.time < max_time:
@@ -331,7 +331,9 @@ class ChuteSimulator:
             history.append((data.time, quat.copy(), pos[1:3].copy(), floor, wall))
             while history and data.time - history[0][0] > 0.51:
                 history.popleft()
-            stable = self._window_is_settled(history)
+            reached_exit = belt_m_s > 0 and pos[0] >= self.exit_x_m
+            stable = (self._window_is_settled(history)
+                      if step // sample_stride % settle_stride == 0 or reached_exit else False)
             if stable and first_settled is None:
                 first_settled = float(data.time)
             if stable and trace_stable and data.time - last_trace_time >= 0.5:
@@ -340,7 +342,7 @@ class ChuteSimulator:
             if np.min(pos[1:3]) < -0.05:
                 status = "lost"
                 break
-            if belt_m_s > 0 and pos[0] >= self.exit_x_m:
+            if reached_exit:
                 status = "settled" if stable else "unsettled"
                 break
             if belt_m_s > 0 and data.time - last_progress_time >= 3:

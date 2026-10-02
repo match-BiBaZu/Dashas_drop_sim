@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 import math
+import os
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +24,8 @@ class RunConfig:
     mu_wall: float = 0.20
     alpha_deg: float = 45.0
     beta_deg: float = 0.0
-    length_mm: float = 3000.0
+    length_mm: float = 1300.0
+    workers: int = max(1, min(4, os.cpu_count() or 1))
     timestep_s: float = 0.001
     disturbance_levels_mm: tuple[float, ...] = (0.0, 0.05, 0.1, 0.2, 0.4, 0.8)
 
@@ -43,6 +45,8 @@ class RunConfig:
             raise ValueError("trials must be a positive integer")
         if not isinstance(self.seed, int) or self.seed < 0:
             raise ValueError("seed must be a non-negative integer")
+        if not isinstance(self.workers, int) or not 1 <= self.workers <= 32:
+            raise ValueError("workers must be an integer between 1 and 32")
         bounds = (
             ("belt_speed_mm_s", self.belt_speed_mm_s, 0, 200),
             ("drop_height_mm", self.drop_height_mm, 0, 200),

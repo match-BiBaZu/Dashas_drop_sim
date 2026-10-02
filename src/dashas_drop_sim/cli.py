@@ -57,7 +57,9 @@ def _preview(config: RunConfig, trial_index: int, *, visible: bool, stopped: thr
     run_dir = _new_run_dir(config.output_dir, config.seed)
     _write_json(run_dir / "config.json", config.to_dict())
     part = prepare_part(config.mesh_path, config.output_dir / ".mesh_cache", config.density_g_cm3)
-    resolver = PoseResolver(part.catalog_mesh_path, config.roadmap_path, original_mesh_path=config.mesh_path)
+    resolver = PoseResolver(part.catalog_mesh_path, config.roadmap_path,
+                            original_mesh_path=config.mesh_path,
+                            cache_dir=config.output_dir / ".pose_cache")
     _write_json(run_dir / "manifest.json", build_manifest(config, part, resolver))
     simulator = ChuteSimulator(config, part)
     child = np.random.SeedSequence(config.seed).spawn(trial_index + 1)[-1]

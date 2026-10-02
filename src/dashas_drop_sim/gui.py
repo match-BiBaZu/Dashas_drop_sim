@@ -17,10 +17,12 @@ import time
 from typing import Any
 
 from PyQt6.QtCore import QProcess, QTimer, Qt
-from PyQt6.QtGui import QCloseEvent
+from PyQt6.QtGui import QCloseEvent, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
+    QComboBox,
     QDoubleSpinBox,
+    QDialog,
     QFileDialog,
     QFormLayout,
     QGroupBox,
@@ -42,6 +44,8 @@ from PyQt6.QtWidgets import (
 )
 
 from .config import RunConfig
+from .catalog import SOURCE_COMMIT, catalog_models
+from .pose_image import render_pose_image
 
 
 def _default(name: str, fallback: Any) -> Any:
@@ -82,6 +86,7 @@ class DropSimulationWindow(QMainWindow):
         self._output_dir: Path | None = None
         self._run_dir: Path | None = None
         self._mode = ""
+        self._catalog_auto_roadmap: str | None = None
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -92,6 +97,13 @@ class DropSimulationWindow(QMainWindow):
 
         files = QGroupBox("Eingaben und Ausgabe")
         file_form = QFormLayout(files)
+        self.catalog_combo = QComboBox()
+        self.catalog_combo.addItem("Eigenes Modell wählen …", None)
+        for name, path in catalog_models().items():
+            self.catalog_combo.addItem(name, str(path))
+        self.catalog_combo.setToolTip(f"BiBaZu-STL-Katalog, Stand {SOURCE_COMMIT[:8]}")
+        self.catalog_combo.currentIndexChanged.connect(self._select_catalog_model)
+        file_form.addRow("Werkstückkatalog", self.catalog_combo)
         self.mesh_edit = QLineEdit()
         file_form.addRow("Bauteil (STL oder STEP)", self._path_row(self.mesh_edit, self._choose_mesh))
         self.roadmap_edit = QLineEdit()
@@ -107,6 +119,11 @@ class DropSimulationWindow(QMainWindow):
         self.trials_spin.setRange(1, 1_000_000)
         self.trials_spin.setValue(int(_default("trials", 100)))
         form.addRow("Anzahl Versuche", self.trials_spin)
+        self.workers_spin = QSpinBox()
+        self.workers_spin.setRange(1, 32)
+        self.workers_spin.setValue(int(_default("workers", 1)))
+        self.workers_spin.setToolTip("Unabhängige MuJoCo-Prozesse; 1 führt die Versuche nacheinander aus")
+        form.addRow("Parallele Prozesse", self.workers_spin)
         self.seed_spin = QSpinBox()
         self.seed_spin.setRange(0, 2_147_483_647)
         self.seed_spin.setValue(int(_default("seed", 0)))
@@ -141,7 +158,7 @@ class DropSimulationWindow(QMainWindow):
         self.beta_spin = _spin(_default("beta_deg", 0), -30, 30, 1)
         self.beta_spin.setSuffix(" °")
         advanced_form.addRow("Längsneigung", self.beta_spin)
-        self.length_spin = _spin(_default("length_mm", 3000), 100, 100_000, 0, 100)
+        self.length_spin = _spin(_default("length_mm", 1300), 100, 100_000, 0, 100)
         self.length_spin.setSuffix(" mm")
         advanced_form.addRow("Beobachtungsstrecke", self.length_spin)
         self.timestep_spin = _spin(_default("timestep_s", 0.002), 0.0001, 0.01, 5, 0.0001)
@@ -177,8 +194,8 @@ class DropSimulationWindow(QMainWindow):
         self.tabs = QTabWidget()
         frequency_tab = QWidget()
         frequency_layout = QVBoxLayout(frequency_tab)
-        self.result_table = QTableWidget(0, 5)
-        self.result_table.setHorizontalHeaderLabels(["Pose / Status", "Anzahl", "Anteil", "KI unten", "KI oben"])
+        self.result_table = QTableWidget(0, 6)
+        self.result_table.setHorizontalHeaderLabels(["Pose / Status", "Anzahl", "Anteil", "KI unten", "KI oben", "Ansicht"])
         self.result_table.horizontalHeader().setStretchLastSection(True)
         self.result_table.setMinimumHeight(180)
         frequency_layout.addWidget(self.result_table)
@@ -209,6 +226,11 @@ class DropSimulationWindow(QMainWindow):
         self.preview_table.horizontalHeader().setStretchLastSection(True)
         self.preview_table.setMinimumHeight(180)
         preview_layout.addWidget(self.preview_table)
+        self.preview_image_button = QPushButton("Pose als Bild anzeigen")
+        self.preview_image_button.setEnabled(False)
+        self.preview_image_button.clicked.connect(self._show_preview_image)
+        preview_layout.addWidget(self.preview_image_button)
+        self._preview_record: dict[str, Any] | None = None
         self.tabs.addTab(preview_tab, "Einzelfall")
         layout.addWidget(self.tabs)
 
@@ -236,7 +258,28 @@ class DropSimulationWindow(QMainWindow):
             "CAD-Modelle (*.stl *.STL *.step *.STEP *.stp *.STP);;Alle Dateien (*)",
         )
         if path:
+            if self._catalog_auto_roadmap and self.roadmap_edit.text() == self._catalog_auto_roadmap:
+                self.roadmap_edit.clear()
+            self._catalog_auto_roadmap = None
+            self.catalog_combo.setCurrentIndex(0)
             self.mesh_edit.setText(path)
+
+    def _select_catalog_model(self, index: int) -> None:
+        path = self.catalog_combo.itemData(index)
+        if path is None:
+            return
+        self.mesh_edit.setText(str(path))
+        if self._catalog_auto_roadmap and self.roadmap_edit.text() == self._catalog_auto_roadmap:
+            self.roadmap_edit.clear()
+        self._catalog_auto_roadmap = None
+        name = Path(path).stem
+        sibling_repo = Path(__file__).resolve().parents[3] / "bibazu_geometry_to_pose"
+        roadmap_root = sibling_repo / "Poses_Found_Robust"
+        if roadmap_root.is_dir():
+            matches = list(roadmap_root.glob(f"{name}_*/{name}_roadmap.yaml"))
+            if len(matches) == 1:
+                self._catalog_auto_roadmap = str(matches[0].resolve())
+                self.roadmap_edit.setText(self._catalog_auto_roadmap)
 
     def _choose_roadmap(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -273,6 +316,7 @@ class DropSimulationWindow(QMainWindow):
             if self.roadmap_edit.text().strip() else None,
             output_dir=Path(output).expanduser().resolve(),
             trials=self.trials_spin.value(),
+            workers=self.workers_spin.value(),
             seed=self.seed_spin.value(),
             belt_speed_mm_s=self.belt_spin.value(),
             drop_height_mm=self.height_spin.value(),
@@ -316,6 +360,8 @@ class DropSimulationWindow(QMainWindow):
         self.stability_rank_table.setRowCount(0)
         self.stability_curve_table.setRowCount(0)
         self.preview_table.setRowCount(0)
+        self.preview_image_button.setEnabled(False)
+        self._preview_record = None
         self.tabs.setCurrentIndex(2 if mode == "preview" else 0)
         self.progress.setRange(0, 0 if mode == "preview" else config.trials)
         self.progress.setValue(0)
@@ -430,12 +476,12 @@ class DropSimulationWindow(QMainWindow):
             self._set_result_rows([event], append=True)
             return True
         if kind in {"summary", "done"}:
-            rows = self._extract_rows(event)
-            if rows:
-                self._set_result_rows(rows)
             if event.get("run_dir"):
                 self._run_dir = Path(str(event["run_dir"]))
                 self._log_line(f"Ergebnisordner: {self._run_dir}")
+            rows = self._extract_rows(event)
+            if rows:
+                self._set_result_rows(rows)
             if event.get("summary") and isinstance(event["summary"], str):
                 self._log_line(f"Zusammenfassung: {event['summary']}")
             if event.get("message"):
@@ -551,6 +597,8 @@ class DropSimulationWindow(QMainWindow):
                     self.preview_table.setItem(index, 0, QTableWidgetItem(label))
                     self.preview_table.setItem(index, 1, QTableWidgetItem(display))
                 self.preview_table.resizeColumnToContents(0)
+                self._preview_record = data
+                self.preview_image_button.setEnabled(bool(data.get("final_quat_xyzw")))
                 self.tabs.setCurrentIndex(2)
                 self._log_line(f"Einzelfall: {path}")
                 return
@@ -645,6 +693,52 @@ class DropSimulationWindow(QMainWindow):
                 if column:
                     item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 self.result_table.setItem(index, column, item)
+            button = QPushButton("Bild")
+            button.setEnabled(bool(row.get("representative_quat_xyzw")) and self._run_dir is not None)
+            button.clicked.connect(lambda _checked=False, selected=row: self._show_pose(selected))
+            self.result_table.setCellWidget(index, 5, button)
+
+    def _show_preview_image(self) -> None:
+        if self._preview_record is None:
+            return
+        record = self._preview_record
+        self._show_pose({
+            "pose_id": record.get("roadmap_pose_id") or "Einzelfall",
+            "representative_quat_xyzw": record.get("final_quat_xyzw"),
+            "representative_pos_chute_mm": record.get("final_pos_chute_mm"),
+            "representative_source": "observed",
+        })
+
+    def _show_pose(self, row: dict[str, Any]) -> None:
+        try:
+            if self._run_dir is None:
+                raise ValueError("Die Bildansicht ist nach Abschluss des Laufs verfügbar.")
+            manifest = json.loads((self._run_dir / "manifest.json").read_text(encoding="utf-8"))
+            config = json.loads((self._run_dir / "config.json").read_text(encoding="utf-8"))
+            mesh_path = Path(manifest.get("catalog_mesh_path") or config["mesh_path"])
+            quaternion = row.get("representative_quat_xyzw")
+            position = row.get("representative_pos_chute_mm")
+            if isinstance(quaternion, str):
+                quaternion = json.loads(quaternion)
+            if isinstance(position, str):
+                position = json.loads(position) if position.strip() else None
+            if not mesh_path.is_file() or quaternion is None:
+                raise ValueError("Mesh oder Orientierung für diese Pose ist nicht verfügbar.")
+            image = render_pose_image(mesh_path, manifest["center_mass_source_mm"], quaternion, position)
+        except (OSError, KeyError, TypeError, ValueError) as exc:
+            QMessageBox.warning(self, "Posenbild", str(exc))
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Pose {row.get('pose_id', '?')}")
+        layout = QVBoxLayout(dialog)
+        image_label = QLabel()
+        image_label.setPixmap(QPixmap.fromImage(image))
+        layout.addWidget(image_label)
+        note = ("Gemessene Endorientierung eines Fallversuchs" if row.get("representative_source") == "observed"
+                else "Katalogorientierung; diese Pose wurde im Lauf nicht beobachtet")
+        layout.addWidget(QLabel(note))
+        layout.addWidget(QLabel("Schematischer Ausschnitt: blaues PE-Band, graue PTFE-Wand; +X ist die Bandrichtung."))
+        dialog.exec()
 
 
 def main() -> int:

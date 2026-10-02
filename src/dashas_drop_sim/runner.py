@@ -20,6 +20,7 @@ from .config import RunConfig
 from .geometry import PreparedPart, prepare_part
 from .physics import ChuteSimulator, TrialOutcome
 from .pose_matching import PoseResolver
+from .parallel import SimulationPool, drop_job, kick_job
 
 
 EventCallback = Callable[[dict[str, Any]], None]
@@ -182,40 +183,55 @@ def _stability_rows(
             representatives.setdefault(key, row)
     directions = disturbance_directions()
     individual: list[dict[str, Any]] = []
-    planned = len(representatives) * (1 + 12 * (len(config.disturbance_levels_mm) - 1))
+    jobs: list[tuple[int, str, int, tuple[float, ...], float, int, tuple[float, float, float]]] = []
     for key, source in representatives.items():
-        if cancel():
-            break
         for level in config.disturbance_levels_mm:
             # A zero kick has one baseline trajectory; twelve copies would be
             # perfectly correlated and waste eleven full simulations.
             sample_directions = directions[:1] if level == 0 else directions
             for direction_index, direction in enumerate(sample_directions):
-                if cancel():
-                    break
-                outcome = simulator.kick(tuple(source["final_qpos"]), level, np.asarray(direction), cancel=cancel)
-                if outcome.status == "cancelled":
-                    break
-                match = resolver.resolve(outcome.final_quat_xyzw) if outcome.status in SETTLED_STATUSES else None
-                individual.append({
-                    "source_pose_id": key,
-                    "source_trial": source["trial"],
-                    "energy_lift_mm": level,
-                    "energy_j": simulator.part.mass_kg * 9.81 * level / 1000,
-                    "direction_index": direction_index,
-                    "direction_chute": direction,
-                    "retained": _same_pose(source, outcome, resolver),
-                    "result_status": outcome.status,
-                    "result_roadmap_pose_id": match.pose_id if match is not None and match.status == "matched" else None,
-                    "result_match_status": match.status if match is not None else None,
-                    "result_quat_xyzw": outcome.final_quat_xyzw,
-                    "settled_trace_quat_xyzw": outcome.settled_trace_quat_xyzw,
-                    "travel_mm": outcome.travel_mm,
-                })
-                emit({"event": "stability_progress", "pose_id": key,
-                      "completed": len(individual), "total": planned})
+                jobs.append((len(jobs), key, source["trial"], tuple(source["final_qpos"]),
+                             level, direction_index, direction))
+    planned = len(jobs)
+
+    def record(job, outcome: TrialOutcome) -> None:
+        ordinal, key, source_trial, _source_qpos, level, direction_index, direction = job
+        source = representatives[key]
+        match = resolver.resolve(outcome.final_quat_xyzw) if outcome.status in SETTLED_STATUSES else None
+        individual.append({
+            "disturbance_index": ordinal,
+            "source_pose_id": key,
+            "source_trial": source_trial,
+            "energy_lift_mm": level,
+            "energy_j": simulator.part.mass_kg * 9.81 * level / 1000,
+            "direction_index": direction_index,
+            "direction_chute": direction,
+            "retained": _same_pose(source, outcome, resolver),
+            "result_status": outcome.status,
+            "result_roadmap_pose_id": match.pose_id if match is not None and match.status == "matched" else None,
+            "result_match_status": match.status if match is not None else None,
+            "result_quat_xyzw": outcome.final_quat_xyzw,
+            "settled_trace_quat_xyzw": outcome.settled_trace_quat_xyzw,
+            "travel_mm": outcome.travel_mm,
+        })
+        emit({"event": "stability_progress", "pose_id": key,
+              "completed": len(individual), "total": planned})
+
+    if config.workers > 1 and planned > 1 and not cancel():
+        with SimulationPool(config, simulator.part) as pool:
+            for job, outcome in pool.run(jobs, kick_job, cancel):
+                record(job, outcome)
+    else:
+        for job in jobs:
             if cancel():
                 break
+            ordinal, key, source_trial, source_qpos, level, direction_index, direction = job
+            outcome = simulator.kick(source_qpos, level, np.asarray(direction),
+                                     index=source_trial, cancel=cancel)
+            if outcome.status == "cancelled":
+                break
+            record(job, outcome)
+    individual.sort(key=lambda row: row["disturbance_index"])
     grouped: dict[tuple[str, float], list[dict[str, Any]]] = {}
     for row in individual:
         grouped.setdefault((row["source_pose_id"], row["energy_lift_mm"]), []).append(row)
@@ -264,8 +280,10 @@ def build_manifest(config: RunConfig, part: PreparedPart, resolver: PoseResolver
         "mass_kg": part.mass_kg,
         "inertia_com_kg_m2": part.inertia_com_kg_m2.tolist(),
         "center_mass_source_mm": part.center_mass_source_mm.tolist(),
+        "catalog_mesh_path": str(part.catalog_mesh_path),
         "collision_quality": part.collision_quality,
         "catalog_symmetry": resolver.symmetry_symbol,
+        "catalogue_cache_hit": resolver.cache_hit,
         "symmetry_available": resolver.symmetry_available,
         "classification_tolerance_deg": resolver.match_tolerance_deg,
         "classification_ambiguity_margin_deg": resolver.ambiguity_margin_deg,
@@ -290,20 +308,18 @@ def run_experiment(
     run_dir = _new_run_dir(config.output_dir, config.seed)
     _write_json(run_dir / "config.json", config.to_dict())
     part = prepare_part(config.mesh_path, config.output_dir / ".mesh_cache", config.density_g_cm3)
-    resolver = PoseResolver(part.catalog_mesh_path, config.roadmap_path, original_mesh_path=config.mesh_path)
+    resolver = PoseResolver(part.catalog_mesh_path, config.roadmap_path,
+                            original_mesh_path=config.mesh_path,
+                            cache_dir=config.output_dir / ".pose_cache")
     simulator = ChuteSimulator(config, part)
     _write_json(run_dir / "manifest.json", build_manifest(config, part, resolver))
 
     child_seeds = np.random.SeedSequence(config.seed).spawn(config.trials)
+    jobs = [(index, int(child.generate_state(1, dtype=np.uint32)[0]))
+            for index, child in enumerate(child_seeds)]
     rows: list[dict[str, Any]] = []
     with (run_dir / "trials.jsonl").open("w", encoding="utf-8") as stream:
-        for index, child in enumerate(child_seeds):
-            if cancel():
-                break
-            trial_seed = int(child.generate_state(1, dtype=np.uint32)[0])
-            outcome = simulator.drop(index, trial_seed, cancel=cancel)
-            if outcome.status == "cancelled":
-                break
+        def record_drop(outcome: TrialOutcome) -> None:
             match = resolver.resolve(outcome.final_quat_xyzw) if outcome.status in SETTLED_STATUSES else None
             row = outcome.to_dict()
             row.update({
@@ -317,7 +333,20 @@ def run_experiment(
             stream.flush()
             emit({"event": "progress", "completed": len(rows), "total": config.trials,
                   "status": outcome.status})
+        if config.workers > 1 and len(jobs) > 1 and not cancel():
+            with SimulationPool(config, part) as pool:
+                for _job, outcome in pool.run(jobs, drop_job, cancel):
+                    record_drop(outcome)
+        else:
+            for index, trial_seed in jobs:
+                if cancel():
+                    break
+                outcome = simulator.drop(index, trial_seed, cancel=cancel)
+                if outcome.status == "cancelled":
+                    break
+                record_drop(outcome)
 
+    rows.sort(key=lambda row: row["trial"])
     _assign_unknown_clusters(rows, resolver)
     for row in rows:
         row["pose_key"] = _pose_key(row)
@@ -329,8 +358,22 @@ def run_experiment(
         "final_wall_contact", "final_qpos",
     ], rows)
     frequencies = _frequency_rows(rows, len(rows), resolver.known_pose_ids) if rows else []
+    example_by_key = {row["pose_key"]: row for row in rows
+                      if row["status"] in SETTLED_STATUSES and row["pose_key"] != "ambiguous"}
+    for frequency in frequencies:
+        key = frequency["pose_id"]
+        example = example_by_key.get(key)
+        if example is not None:
+            frequency["representative_quat_xyzw"] = example["final_quat_xyzw"]
+            frequency["representative_pos_chute_mm"] = example["final_pos_chute_mm"]
+            frequency["representative_source"] = "observed"
+        elif key in {str(pose_id) for pose_id in resolver.known_pose_ids}:
+            frequency["representative_quat_xyzw"] = resolver.reference_quaternion(int(key))
+            frequency["representative_pos_chute_mm"] = None
+            frequency["representative_source"] = "catalogue"
     _write_csv(run_dir / "frequencies.csv", [
         "pose_id", "category", "count", "probability", "ci_low", "ci_high",
+        "representative_quat_xyzw", "representative_pos_chute_mm", "representative_source",
     ], frequencies)
     for frequency in frequencies:
         emit({"event": "result", **frequency})
@@ -338,7 +381,7 @@ def run_experiment(
     disturbances, curves = _stability_rows(rows, config, simulator, resolver, cancel, emit)
     ranking = _ranking(curves, config.disturbance_levels_mm)
     _write_csv(run_dir / "disturbances.csv", [
-        "source_pose_id", "source_trial", "energy_lift_mm", "energy_j", "direction_index",
+        "disturbance_index", "source_pose_id", "source_trial", "energy_lift_mm", "energy_j", "direction_index",
         "direction_chute", "retained", "result_status", "result_roadmap_pose_id",
         "result_match_status", "result_quat_xyzw", "settled_trace_quat_xyzw", "travel_mm",
     ], disturbances)

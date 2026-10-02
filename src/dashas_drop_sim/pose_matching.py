@@ -11,10 +11,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import importlib
+from importlib import metadata
 import json
 import math
 from pathlib import Path
 from typing import Literal, Sequence
+from uuid import uuid4
 
 import numpy as np
 from scipy.cluster.hierarchy import fcluster, linkage
@@ -135,6 +137,7 @@ class PoseResolver:
         roadmap_path: Path | None,
         *,
         original_mesh_path: Path | None = None,
+        cache_dir: Path | None = None,
         match_tolerance_deg: float = 5.0,
         ambiguity_margin_deg: float = 1.0,
         cluster_tolerance_deg: float = 5.0,
@@ -161,6 +164,7 @@ class PoseResolver:
         self._catalogue_axes = np.empty((0, 3), dtype=float)
         self._catalogue_node_ids = np.empty(0, dtype=int)
         self.known_pose_ids: tuple[int, ...] = ()
+        self.cache_hit = False
         data = None if self.roadmap_path is None else _roadmap(self.roadmap_path)
         if data is not None:
             if self.original_mesh_path.suffix.lower() != ".stl":
@@ -178,6 +182,24 @@ class PoseResolver:
             # unknown orientations, although symmetry cannot be inferred.
             return
 
+        cache_file: Path | None = None
+        if cache_dir is not None:
+            try:
+                package_version = metadata.version("bibazu-chute-pose")
+            except metadata.PackageNotFoundError:
+                package_version = "unknown"
+            cache_key = hashlib.sha256(json.dumps({
+                "cache_version": 1,
+                "mesh_sha256": _sha256(self.mesh_path),
+                "roadmap_sha256": _sha256(self.roadmap_path) if self.roadmap_path else None,
+                "package_version": package_version,
+                "symmetry_tolerance_mm": data.get("symmetry_tolerance_mm") if data else None,
+            }, sort_keys=True).encode("utf-8")).hexdigest()
+            cache_file = Path(cache_dir).expanduser().resolve() / f"{cache_key}.json"
+            if cache_file.is_file() and self._load_cache(cache_file):
+                self.cache_hit = True
+                return
+
         symmetry_kwargs: dict[str, float] = {}
         if data is not None and data.get("symmetry_tolerance_mm") is not None:
             symmetry_kwargs["tolerance_mm"] = float(data["symmetry_tolerance_mm"])
@@ -193,6 +215,8 @@ class PoseResolver:
             ).as_quat()
 
         if data is None:
+            if cache_file is not None:
+                self._save_cache(cache_file)
             return
         catalogue = chute_pose.build_pose_catalog(self.mesh_path)
         catalogue_by_id = {pose.pose_id: pose for pose in catalogue.poses}
@@ -218,6 +242,60 @@ class PoseResolver:
         self._catalogue_node_ids = np.asarray(node_ids, dtype=int)
         if self._continuous_axis is not None:
             self._catalogue_axes = Rotation.from_quat(self._catalogue_quats).apply(self._continuous_axis)
+        if cache_file is not None:
+            self._save_cache(cache_file)
+
+    def _load_cache(self, path: Path) -> bool:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if data["version"] != 1:
+                return False
+            symmetry_quats = np.asarray(data["symmetry_quats"], dtype=float).reshape(-1, 4)
+            axis = data["continuous_axis"]
+            continuous_axis = None if axis is None else np.asarray(axis, dtype=float).reshape(3)
+            catalogue_quats = np.asarray(data["catalogue_quats"], dtype=float).reshape(-1, 4)
+            catalogue_node_ids = np.asarray(data["catalogue_node_ids"], dtype=int)
+            catalogue_axes = np.asarray(data["catalogue_axes"], dtype=float).reshape(-1, 3)
+            known_pose_ids = tuple(int(value) for value in data["known_pose_ids"])
+            if len(catalogue_quats) != len(catalogue_node_ids):
+                return False
+            if continuous_axis is not None and len(catalogue_axes) != len(catalogue_quats):
+                return False
+            self.symmetry_available = bool(data["symmetry_available"])
+            self.symmetry_symbol = str(data["symmetry_symbol"])
+            self._symmetry_quats = symmetry_quats
+            self._continuous_axis = continuous_axis
+            self._catalogue_quats = catalogue_quats
+            self._catalogue_node_ids = catalogue_node_ids
+            self._catalogue_axes = catalogue_axes
+            self.known_pose_ids = known_pose_ids
+            return True
+        except (OSError, KeyError, TypeError, ValueError):
+            return False
+
+    def _save_cache(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        content = {
+            "version": 1,
+            "symmetry_available": self.symmetry_available,
+            "symmetry_symbol": self.symmetry_symbol,
+            "symmetry_quats": self._symmetry_quats.tolist(),
+            "continuous_axis": None if self._continuous_axis is None else self._continuous_axis.tolist(),
+            "catalogue_quats": self._catalogue_quats.tolist(),
+            "catalogue_node_ids": self._catalogue_node_ids.tolist(),
+            "catalogue_axes": self._catalogue_axes.tolist(),
+            "known_pose_ids": list(self.known_pose_ids),
+        }
+        temporary = path.with_name(f"{path.stem}.{uuid4().hex}.tmp")
+        temporary.write_text(json.dumps(content, separators=(",", ":")), encoding="utf-8")
+        temporary.replace(path)
+
+    def reference_quaternion(self, pose_id: int) -> tuple[float, float, float, float] | None:
+        """One catalogue orientation for displaying a known roadmap pose."""
+        indices = np.flatnonzero(self._catalogue_node_ids == pose_id)
+        if len(indices) == 0:
+            return None
+        return tuple(float(value) for value in self._catalogue_quats[indices[0]])
 
     def resolve(self, quat_xyzw: Sequence[float] | np.ndarray) -> PoseMatch:
         """Return one unambiguous roadmap node, or retain the unknown result."""

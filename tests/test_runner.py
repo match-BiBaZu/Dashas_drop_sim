@@ -91,6 +91,44 @@ def test_same_seed_repeats_release_and_end_state(cube: Path) -> None:
     assert first.summary["pose_frequencies"] == second.summary["pose_frequencies"]
 
 
+def test_parallel_drops_match_serial_seeded_results(cube: Path) -> None:
+    serial_config = _short_config(cube, output_dir=cube.parent / "serial")
+    serial_config.trials = 2
+    serial_config.workers = 1
+    parallel_config = _short_config(cube, output_dir=cube.parent / "parallel")
+    parallel_config.trials = 2
+    parallel_config.workers = 2
+
+    serial = run_experiment(serial_config)
+    parallel = run_experiment(parallel_config)
+    serial_rows = [json.loads(line) for line in (serial.run_dir / "trials.jsonl").read_text().splitlines()]
+    parallel_rows = [json.loads(line) for line in (parallel.run_dir / "trials.jsonl").read_text().splitlines()]
+    assert [row["trial"] for row in parallel_rows] == [0, 1]
+    for left, right in zip(serial_rows, parallel_rows):
+        assert left["seed"] == right["seed"]
+        assert left["status"] == right["status"]
+        assert left["pose_key"] == right["pose_key"]
+        assert left["final_qpos"] == pytest.approx(right["final_qpos"], abs=1e-10)
+    assert serial.summary["pose_frequencies"] == parallel.summary["pose_frequencies"]
+
+
+def test_parallel_cancellation_stops_new_drop_jobs(cube: Path) -> None:
+    config = _short_config(cube)
+    config.trials = 4
+    config.workers = 2
+    stopped = False
+
+    def emit(event: dict) -> None:
+        nonlocal stopped
+        if event.get("event") == "progress":
+            stopped = True
+
+    result = run_experiment(config, emit=emit, cancel=lambda: stopped)
+    assert result.summary["cancelled"] is True
+    assert 1 <= result.summary["completed_trials"] < 4
+    assert result.summary["disturbance_trials"] == 0
+
+
 def test_cancel_before_first_trial_writes_valid_partial_result(cube: Path) -> None:
     result = run_experiment(_short_config(cube), cancel=lambda: True)
 

@@ -74,6 +74,7 @@ def test_uses_every_catalogue_orientation_and_part_symmetry(monkeypatch, tmp_pat
     assert resolver.resolve(second_catalogue_orientation).pose_id == 5
     symmetric_orientation = Rotation.from_euler("z", 180, degrees=True).as_quat()
     assert resolver.resolve(symmetric_orientation).pose_id == 5
+    assert resolver.reference_quaternion(5) is not None
     unknown = resolver.resolve(Rotation.from_euler("x", 50, degrees=True).as_quat())
     assert unknown.status == "unmatched"
     assert unknown.pose_id is None
@@ -156,3 +157,21 @@ def test_invalid_quaternion_is_rejected(monkeypatch, tmp_path):
 
     with pytest.raises(ValueError, match="zero quaternion"):
         resolver.resolve([0, 0, 0, 0])
+
+
+def test_cached_catalogue_preserves_matching_without_rebuilding(monkeypatch, tmp_path):
+    _fake_chute_pose(monkeypatch)
+    mesh = tmp_path / "part.stl"
+    mesh.write_bytes(b"same mesh")
+    roadmap = _roadmap_file(tmp_path, mesh, ".yaml", [(5, [101, 102])])
+    cache = tmp_path / "pose_cache"
+    first = PoseResolver(mesh, roadmap, cache_dir=cache)
+    assert first.cache_hit is False
+
+    def forbidden(_path):
+        raise AssertionError("The catalogue should have been read from the cache")
+
+    monkeypatch.setattr(sys.modules["chute_pose"], "build_pose_catalog", forbidden)
+    second = PoseResolver(mesh, roadmap, cache_dir=cache)
+    assert second.cache_hit is True
+    assert second.resolve(Rotation.from_euler("x", 30, degrees=True).as_quat()).pose_id == 5
