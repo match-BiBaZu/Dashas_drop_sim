@@ -17,6 +17,14 @@ uv sync --python 3.12 --all-extras
 uv run dashas-drop-sim gui
 ```
 
+Unter Windows startet `DropSimulationGUI.cmd` die GUI direkt. Ein Doppelklick auf
+`WindowsLaunchers\Verknuepfungen-installieren.cmd` erstellt eigene Verknüpfungen
+auf dem Desktop und unter **Startmenü > BiBaZu > BiBaZu Drop Simulation**.
+Den Startmenü-Eintrag kann man über das Kontextmenü an „Start“ anheften.
+Die Simulation verwendet keine Kameras, Lampen, SPS oder anderen BiBaZu-Geräte
+und kann parallel zu den anderen GUIs laufen. Bei parallelen Simulationen
+teilen sich die Prozesse lediglich CPU und Arbeitsspeicher.
+
 `--all-extras` installiert die PyQt6-Oberfläche, OpenCascade für STEP-Dateien,
 die fest gepinnte Version von `bibazu_geometry_to_pose` für Roadmap-Vergleiche
 und pytest. Nach der Installation lassen sich GUI und CLI auch mit
@@ -56,6 +64,28 @@ bleibt für eigene STL- und STEP-Dateien verfügbar. Ist die lokale
 Roadmap beim Auswählen automatisch eingetragen. In der Häufigkeitstabelle
 öffnet **Bild** eine schematische 3D-Ansicht der Pose; beobachtete Endlagen und
 unbeobachtete Katalogorientierungen sind beschriftet.
+
+Für mehrere Werkstücke gibt es den Bereich **Mehrere Werkstücke**. **Mehrere
+Dateien laden** erlaubt die gemeinsame Auswahl mehrerer STL- oder STEP-Dateien;
+**Aus Katalog laden** erlaubt Mehrfachauswahl oder **Alle auswählen**. Ein bereits
+eingerichtetes Modell samt Roadmap lässt sich mit **Aktuelles Werkstück
+hinzufügen** in die Liste übernehmen. Jeder Eintrag hat eine eigene optionale
+Roadmap. Eindeutig passende Roadmaps werden automatisch eingetragen und können
+in der Liste geändert oder geleert werden.
+
+**Werkstück-Batch starten** verarbeitet die gesamte Liste nacheinander ohne
+weitere Eingaben. Die aktuellen Simulationsparameter, Versuchszahl und Anzahl
+paralleler Prozesse gelten für jedes Werkstück und werden beim Start gespeichert.
+Die Parallelisierung findet innerhalb des jeweiligen Werkstücks statt. Ein
+fehlgeschlagenes Werkstück wird markiert; der Batch läuft mit dem nächsten
+weiter. **Abbrechen** beendet den aktuellen Lauf und startet keine weiteren
+Werkstücke.
+
+Ergebnisse liegen unter `results/batch_<Zeitstempel>/<Nummer>_<Werkstück>/run_*`.
+`batch.json` im Batch-Ordner enthält Einstellungen, Status und Ergebnisordner
+aller Einträge. Nach Abschluss öffnet **Ergebnisse** in der jeweiligen Tabellenzeile
+die Häufigkeits- und Stabilitätstabellen dieses Werkstücks. Die Auswahl setzt
+auch dessen Roadmap für die anschließende Neunummerierung der Pose-IDs.
 
 Serien ohne 3D-Ansicht und Störversuche laufen über getrennte MuJoCo-Prozesse auf mehreren
 CPU-Kernen. Die GUI bietet dafür **Parallele Prozesse** (Vorgabe: bis zu vier).
@@ -151,8 +181,26 @@ Störkurve beschreibt den beobachteten Pose-Erhalt am Ende und in eingependelten
 Zwischenlagen; die normierte Fläche dient
 als Rangmaß. Es gibt keinen vorgegebenen Grenzwert für „stabil“.
 
-Die Roadmap wird nur gelesen. Ihre Felder für Luftimpuls-Übergänge werden durch
-Fallhäufigkeiten nicht verändert.
+Beim normalen Simulationslauf wird die Roadmap nur gelesen. Ihre Felder für
+Luftimpuls-Übergänge werden durch Fallhäufigkeiten nicht verändert.
+
+### Pose-Nummern nach Häufigkeit ordnen
+
+Nach einer Serie kann die Schaltfläche **YAML und JSON nach Häufigkeit neu
+nummerieren** die IDs einer geladenen, gepaarten Roadmap ändern. Dafür wird
+die `summary.json` des Laufs ausgewählt. Die Simulation muss mit genau dieser
+Version der YAML- oder JSON-Roadmap gelaufen sein. Pose 0 wird die am häufigsten
+beobachtete Roadmap-Pose; weitere Posen folgen absteigend nach Trefferzahl.
+Gleichstände werden nach bisheriger ID sortiert, Posen ohne Treffer stehen am
+Ende. Unbekannte Lagen und nicht eingependelte Versuche werden nicht in die
+Roadmap aufgenommen. Die Einordnung als robust/metastabil bleibt erhalten;
+Pose-Listen und Übergänge in beiden Dateien werden auf die neuen IDs umgestellt.
+
+Der Speicherdialog schlägt neue Dateien mit `_frequency_ordered` im Namen vor.
+Wer die bisherigen Dateien überschreibt, erhält zuvor Sicherungskopien mit
+`.bak.<Zeitstempel>` im selben Ordner. Bereits gespeicherte Simulationsergebnisse
+behalten ihre bisherigen IDs; neue Läufe können die neu nummerierte Roadmap
+verwenden.
 
 ## Physikalische Annahmen und Grenzen
 

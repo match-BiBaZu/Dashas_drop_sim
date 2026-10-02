@@ -15,11 +15,13 @@ from pathlib import Path
 import sys
 import time
 from typing import Any
+import yaml
 
 from PyQt6.QtCore import QProcess, QTimer, Qt
-from PyQt6.QtGui import QCloseEvent, QPixmap
+from PyQt6.QtGui import QCloseEvent, QIcon, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
+    QAbstractItemView,
     QComboBox,
     QDoubleSpinBox,
     QDialog,
@@ -29,6 +31,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
     QMainWindow,
     QMessageBox,
     QProgressBar,
@@ -44,8 +47,10 @@ from PyQt6.QtWidgets import (
 )
 
 from .config import RunConfig
+from .batch import Workpiece, batch_configs, find_roadmap
 from .catalog import SOURCE_COMMIT, catalog_models
 from .pose_image import render_pose_image
+from .roadmap_reindex import reindex_roadmaps
 
 
 def _default(name: str, fallback: Any) -> Any:
@@ -87,7 +92,14 @@ class DropSimulationWindow(QMainWindow):
         self._run_dir: Path | None = None
         self._mode = ""
         self._catalog_auto_roadmap: str | None = None
+        self._batch_active = False
+        self._batch_stop_requested = False
+        self._batch_configs: list[RunConfig] = []
+        self._batch_records: list[dict[str, Any]] = []
+        self._batch_index = -1
+        self._batch_dir: Path | None = None
         self._build_ui()
+        self._update_batch_count()
 
     def _build_ui(self) -> None:
         outer = QScrollArea()
@@ -109,9 +121,48 @@ class DropSimulationWindow(QMainWindow):
         self.roadmap_edit = QLineEdit()
         self.roadmap_edit.setPlaceholderText("Optional: Roadmap zum Abgleich der Pose-IDs")
         file_form.addRow("Roadmap", self._path_row(self.roadmap_edit, self._choose_roadmap))
+        self.reindex_button = QPushButton("YAML und JSON nach Häufigkeit neu nummerieren …")
+        self.reindex_button.setToolTip("Eine summary.json wählen und beide Roadmap-Dateien mit neuen Pose-IDs speichern")
+        self.reindex_button.clicked.connect(self._reindex_roadmaps)
+        file_form.addRow("Pose-Nummern", self.reindex_button)
         self.output_edit = QLineEdit(str(_default("output_dir", Path.cwd() / "results")))
         file_form.addRow("Ergebnisordner", self._path_row(self.output_edit, self._choose_output))
         layout.addWidget(files)
+
+        batch_group = QGroupBox("Mehrere Werkstücke")
+        batch_layout = QVBoxLayout(batch_group)
+        batch_note = QLabel("Werkstücke nacheinander mit den unten eingestellten Parametern simulieren. Jeder Eintrag erhält eigene Ergebnisse.")
+        batch_note.setWordWrap(True)
+        batch_layout.addWidget(batch_note)
+        batch_actions = QHBoxLayout()
+        self.batch_add_files_button = QPushButton("Mehrere Dateien laden …")
+        self.batch_add_files_button.clicked.connect(self._choose_batch_meshes)
+        self.batch_catalog_button = QPushButton("Aus Katalog laden …")
+        self.batch_catalog_button.clicked.connect(self._choose_batch_catalog)
+        self.batch_add_current_button = QPushButton("Aktuelles Werkstück hinzufügen")
+        self.batch_add_current_button.clicked.connect(self._add_current_workpiece)
+        self.batch_remove_button = QPushButton("Auswahl entfernen")
+        self.batch_remove_button.clicked.connect(self._remove_batch_selection)
+        self.batch_clear_button = QPushButton("Liste leeren")
+        self.batch_clear_button.clicked.connect(lambda: self.batch_table.setRowCount(0))
+        self._batch_edit_buttons = [self.batch_add_files_button, self.batch_catalog_button,
+                                    self.batch_add_current_button, self.batch_remove_button, self.batch_clear_button]
+        for button in self._batch_edit_buttons:
+            batch_actions.addWidget(button)
+        batch_layout.addLayout(batch_actions)
+        self.batch_table = QTableWidget(0, 4)
+        self.batch_table.setHorizontalHeaderLabels(["Werkstück", "Roadmap (optional)", "Status", "Ergebnisse"])
+        self.batch_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.batch_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.batch_table.horizontalHeader().setStretchLastSection(True)
+        self.batch_table.setColumnWidth(1, 380)
+        self.batch_table.setMinimumHeight(150)
+        batch_layout.addWidget(self.batch_table)
+        self.batch_status = QLabel("Keine Werkstücke in der Warteschlange")
+        batch_layout.addWidget(self.batch_status)
+        self.batch_table.model().rowsInserted.connect(self._update_batch_count)
+        self.batch_table.model().rowsRemoved.connect(self._update_batch_count)
+        layout.addWidget(batch_group)
 
         parameters = QGroupBox("Fallversuche")
         form = QFormLayout(parameters)
@@ -179,8 +230,11 @@ class DropSimulationWindow(QMainWindow):
         self.cancel_button = QPushButton("Abbrechen")
         self.cancel_button.setEnabled(False)
         self.cancel_button.clicked.connect(self._cancel)
+        self.batch_start_button = QPushButton("Werkstück-Batch starten")
+        self.batch_start_button.clicked.connect(self._start_batch)
         controls.addWidget(self.start_button)
         controls.addWidget(self.preview_button)
+        controls.addWidget(self.batch_start_button)
         controls.addWidget(self.cancel_button)
         controls.addStretch()
         layout.addLayout(controls)
@@ -265,6 +319,117 @@ class DropSimulationWindow(QMainWindow):
             self.catalog_combo.setCurrentIndex(0)
             self.mesh_edit.setText(path)
 
+    def _choose_batch_meshes(self) -> None:
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Mehrere Werkstücke wählen", self.mesh_edit.text() or str(Path.cwd()),
+            "CAD-Modelle (*.stl *.STL *.step *.STEP *.stp *.STP);;Alle Dateien (*)",
+        )
+        self._add_workpieces([Workpiece(Path(path), find_roadmap(Path(path))) for path in paths])
+
+    def _choose_batch_catalog(self) -> None:
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Werkstücke für den Batch auswählen")
+        dialog.resize(400, 500)
+        layout = QVBoxLayout(dialog)
+        models = QListWidget()
+        models.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        for name, path in catalog_models().items():
+            models.addItem(name)
+            models.item(models.count() - 1).setData(Qt.ItemDataRole.UserRole, str(path))
+        layout.addWidget(models)
+        actions = QHBoxLayout()
+        select_all = QPushButton("Alle auswählen")
+        select_all.clicked.connect(models.selectAll)
+        accept = QPushButton("Hinzufügen")
+        accept.clicked.connect(dialog.accept)
+        cancel = QPushButton("Abbrechen")
+        cancel.clicked.connect(dialog.reject)
+        for button in (select_all, accept, cancel):
+            actions.addWidget(button)
+        layout.addLayout(actions)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._add_workpieces([
+                Workpiece(Path(item.data(Qt.ItemDataRole.UserRole)),
+                          find_roadmap(Path(item.data(Qt.ItemDataRole.UserRole))))
+                for item in models.selectedItems()
+            ])
+
+    def _add_current_workpiece(self) -> None:
+        mesh = self.mesh_edit.text().strip()
+        if not mesh:
+            QMessageBox.warning(self, "Werkstück-Batch", "Bitte ein Werkstück wählen.")
+            return
+        roadmap = self.roadmap_edit.text().strip()
+        self._add_workpieces([Workpiece(Path(mesh), Path(roadmap) if roadmap else None)])
+
+    def _add_workpieces(self, workpieces: list[Workpiece]) -> None:
+        if self._process is not None or self._batch_active:
+            return
+        existing = {Path(self.batch_table.item(row, 0).data(Qt.ItemDataRole.UserRole))
+                    for row in range(self.batch_table.rowCount())}
+        for workpiece in workpieces:
+            mesh = workpiece.mesh_path.expanduser().resolve()
+            if mesh in existing:
+                continue
+            row = self.batch_table.rowCount()
+            self.batch_table.insertRow(row)
+            item = QTableWidgetItem(mesh.stem)
+            item.setData(Qt.ItemDataRole.UserRole, str(mesh))
+            item.setToolTip(str(mesh))
+            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.batch_table.setItem(row, 0, item)
+            edit = QLineEdit(str(workpiece.roadmap_path.expanduser().resolve()) if workpiece.roadmap_path else "")
+            edit.setPlaceholderText("Optional: Roadmap für dieses Werkstück")
+            self.batch_table.setCellWidget(row, 1, self._path_row(edit, lambda _checked=False, field=edit: self._choose_batch_roadmap(field)))
+            self._set_batch_status(row, "Bereit")
+            result_button = QPushButton("Ergebnisse")
+            result_button.setEnabled(False)
+            self.batch_table.setCellWidget(row, 3, result_button)
+            existing.add(mesh)
+        self._update_batch_count()
+
+    def _choose_batch_roadmap(self, edit: QLineEdit) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Roadmap für Werkstück wählen", edit.text() or str(Path.cwd()),
+            "Roadmaps (*.yaml *.yml *.json);;Alle Dateien (*)",
+        )
+        if path:
+            edit.setText(path)
+
+    def _remove_batch_selection(self) -> None:
+        for row in sorted({index.row() for index in self.batch_table.selectedIndexes()}, reverse=True):
+            self.batch_table.removeRow(row)
+
+    def _update_batch_count(self, *_args: Any) -> None:
+        count = self.batch_table.rowCount()
+        if not self._batch_active:
+            self.batch_status.setText(f"{count} Werkstücke in der Warteschlange")
+        self.batch_start_button.setEnabled(count > 0 and self._process is None and not self._batch_active)
+
+    def _set_batch_status(self, row: int, text: str) -> None:
+        item = QTableWidgetItem(text)
+        item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        self.batch_table.setItem(row, 2, item)
+
+    def _queued_workpieces(self) -> list[Workpiece]:
+        workpieces = []
+        for row in range(self.batch_table.rowCount()):
+            path = self.batch_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+            edit = self.batch_table.cellWidget(row, 1).findChild(QLineEdit)
+            roadmap = edit.text().strip()
+            workpieces.append(Workpiece(Path(path), Path(roadmap) if roadmap else None))
+        return workpieces
+
+    def _set_running_controls(self, busy: bool) -> None:
+        self.start_button.setEnabled(not busy)
+        self.preview_button.setEnabled(not busy)
+        self.reindex_button.setEnabled(not busy)
+        self.batch_start_button.setEnabled(not busy and self.batch_table.rowCount() > 0)
+        self.cancel_button.setEnabled(busy)
+        self.batch_table.setEnabled(not busy)
+        for button in self._batch_edit_buttons:
+            button.setEnabled(not busy)
+
     def _select_catalog_model(self, index: int) -> None:
         path = self.catalog_combo.itemData(index)
         if path is None:
@@ -273,14 +438,10 @@ class DropSimulationWindow(QMainWindow):
         if self._catalog_auto_roadmap and self.roadmap_edit.text() == self._catalog_auto_roadmap:
             self.roadmap_edit.clear()
         self._catalog_auto_roadmap = None
-        name = Path(path).stem
-        sibling_repo = Path(__file__).resolve().parents[3] / "bibazu_geometry_to_pose"
-        roadmap_root = sibling_repo / "Poses_Found_Robust"
-        if roadmap_root.is_dir():
-            matches = list(roadmap_root.glob(f"{name}_*/{name}_roadmap.yaml"))
-            if len(matches) == 1:
-                self._catalog_auto_roadmap = str(matches[0].resolve())
-                self.roadmap_edit.setText(self._catalog_auto_roadmap)
+        roadmap = find_roadmap(Path(path))
+        if roadmap is not None:
+            self._catalog_auto_roadmap = str(roadmap)
+            self.roadmap_edit.setText(self._catalog_auto_roadmap)
 
     def _choose_roadmap(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -290,6 +451,53 @@ class DropSimulationWindow(QMainWindow):
         if path:
             self.roadmap_edit.setText(path)
 
+    def _reindex_roadmaps(self) -> None:
+        if self._process is not None:
+            return
+        source_text = self.roadmap_edit.text().strip()
+        if not source_text:
+            QMessageBox.warning(self, "Pose-Nummern", "Bitte zuerst eine YAML- oder JSON-Roadmap wählen.")
+            return
+        source = Path(source_text).expanduser().resolve()
+        summary_start = self._run_dir / "summary.json" if self._run_dir else Path(self.output_edit.text().strip())
+        summary_path, _ = QFileDialog.getOpenFileName(
+            self, "Simulationsergebnis wählen", str(summary_start), "Zusammenfassung (summary.json);;JSON (*.json)",
+        )
+        if not summary_path:
+            return
+        destination_start = source.with_name(f"{source.stem}_frequency_ordered{source.suffix}")
+        destination, _ = QFileDialog.getSaveFileName(
+            self, "Neu nummerierte Roadmaps speichern", str(destination_start),
+            "Roadmaps (*.yaml *.yml *.json)",
+        )
+        if not destination:
+            return
+        try:
+            mapping, backups, outputs = reindex_roadmaps(source, Path(summary_path), Path(destination))
+        except (OSError, TypeError, ValueError, yaml.YAMLError) as exc:
+            QMessageBox.warning(self, "Pose-Nummern", str(exc))
+            return
+        selected = Path(destination).expanduser().resolve()
+        self.roadmap_edit.setText(str(selected))
+        for row, workpiece in enumerate(self._queued_workpieces()):
+            if (workpiece.mesh_path == Path(self.mesh_edit.text()).expanduser().resolve()
+                    and workpiece.roadmap_path is not None
+                    and workpiece.roadmap_path.expanduser().resolve() == source):
+                self.batch_table.cellWidget(row, 1).findChild(QLineEdit).setText(str(selected))
+        self._catalog_auto_roadmap = None
+        self.status_label.setText("Roadmaps neu nummeriert; Ergebnisse zeigen bisherige IDs")
+        self._log_line(f"{len(mapping)} Posen neu nummeriert: {outputs[0]} und {outputs[1]}")
+        self._log_line("Pose-IDs (alt → neu): " + ", ".join(
+            f"{old_id} → {new_id}" for old_id, new_id in sorted(mapping.items(), key=lambda item: item[1])
+        ))
+        for backup in backups:
+            self._log_line(f"Sicherung: {backup}")
+        QMessageBox.information(
+            self, "Pose-Nummern",
+            f"{len(mapping)} Posen nach Häufigkeit neu nummeriert. YAML und JSON wurden gespeichert.\n"
+            "Die angezeigten Ergebnisse verwenden noch die bisherigen Pose-Nummern.",
+        )
+
     def _choose_output(self) -> None:
         path = QFileDialog.getExistingDirectory(
             self, "Ergebnisordner wählen", self.output_edit.text() or str(Path.cwd())
@@ -297,8 +505,8 @@ class DropSimulationWindow(QMainWindow):
         if path:
             self.output_edit.setText(path)
 
-    def _make_config(self) -> RunConfig:
-        mesh = self.mesh_edit.text().strip()
+    def _make_config(self, workpiece: Workpiece | None = None) -> RunConfig:
+        mesh = str(workpiece.mesh_path) if workpiece else self.mesh_edit.text().strip()
         output = self.output_edit.text().strip()
         if not mesh:
             raise ValueError("Bitte ein STL- oder STEP-Bauteil wählen.")
@@ -313,8 +521,10 @@ class DropSimulationWindow(QMainWindow):
             raise ValueError("Mindestens eine Störstufe ist erforderlich.")
         config = RunConfig(
             mesh_path=Path(mesh).expanduser().resolve(),
-            roadmap_path=Path(self.roadmap_edit.text().strip()).expanduser().resolve()
-            if self.roadmap_edit.text().strip() else None,
+            roadmap_path=workpiece.roadmap_path if workpiece else (
+                Path(self.roadmap_edit.text().strip()).expanduser().resolve()
+                if self.roadmap_edit.text().strip() else None
+            ),
             output_dir=Path(output).expanduser().resolve(),
             trials=self.trials_spin.value(),
             workers=self.workers_spin.value(),
@@ -335,10 +545,130 @@ class DropSimulationWindow(QMainWindow):
         return config
 
     def _start(self, mode: str) -> None:
-        if self._process is not None:
+        if self._process is not None or self._batch_active:
             return
         try:
             config = self._make_config()
+        except (OSError, TypeError, ValueError) as exc:
+            QMessageBox.warning(self, "Eingabe prüfen", str(exc))
+            return
+        self._launch_config(config, mode)
+
+    def _start_batch(self) -> None:
+        if self._process is not None or self._batch_active:
+            return
+        try:
+            workpieces = self._queued_workpieces()
+            if not workpieces:
+                raise ValueError("Bitte Werkstücke zur Warteschlange hinzufügen.")
+            base = self._make_config(workpieces[0])
+            stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            batch_dir = base.output_dir / f"batch_{stamp}"
+            configs = batch_configs(base, workpieces, batch_dir)
+            batch_dir.mkdir(parents=True, exist_ok=True)
+        except (OSError, TypeError, ValueError) as exc:
+            QMessageBox.warning(self, "Werkstück-Batch", str(exc))
+            return
+        self._batch_dir = batch_dir
+        self._batch_configs = configs
+        self._batch_records = [{"config": config.to_dict(), "status": "pending", "run_dir": None}
+                               for config in configs]
+        self._batch_index = -1
+        self._batch_stop_requested = False
+        self._batch_active = True
+        self.log.clear()
+        self._log_line(f"Werkstück-Batch: {batch_dir}")
+        for row in range(self.batch_table.rowCount()):
+            self._set_batch_status(row, "Wartet")
+            self.batch_table.cellWidget(row, 3).setEnabled(False)
+        self._set_running_controls(True)
+        self._persist_batch()
+        self._advance_batch()
+
+    def _persist_batch(self) -> None:
+        if self._batch_dir is None:
+            return
+        data = {"status": "running" if self._batch_active else (
+            "cancelled" if self._batch_stop_requested else "finished"
+        ), "workpieces": self._batch_records}
+        try:
+            (self._batch_dir / "batch.json").write_text(
+                json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",
+            )
+        except OSError as exc:
+            self._log_line(f"Batch-Übersicht konnte nicht gespeichert werden: {exc}")
+
+    def _advance_batch(self) -> None:
+        if not self._batch_active or self._process is not None:
+            return
+        if self._batch_stop_requested or self._batch_index + 1 >= len(self._batch_configs):
+            self._finish_batch()
+            return
+        self._batch_index += 1
+        config = self._batch_configs[self._batch_index]
+        self.batch_status.setText(f"Werkstück {self._batch_index + 1} / {len(self._batch_configs)}: {config.mesh_path.stem}")
+        self._set_batch_status(self._batch_index, "Läuft")
+        self._batch_records[self._batch_index]["status"] = "running"
+        self._persist_batch()
+        self.mesh_edit.setText(str(config.mesh_path))
+        self.roadmap_edit.setText(str(config.roadmap_path or ""))
+        self._catalog_auto_roadmap = None
+        self._log_line(f"Werkstück {self._batch_index + 1}: {config.mesh_path}")
+        if not self._launch_config(config, "run"):
+            self._record_batch_result("failed", 2)
+            QTimer.singleShot(0, self._advance_batch)
+
+    def _record_batch_result(self, outcome: str, code: int) -> None:
+        record = self._batch_records[self._batch_index]
+        record.update(status=outcome, exit_code=code, run_dir=str(self._run_dir) if self._run_dir else None)
+        labels = {"completed": "Abgeschlossen", "failed": "Fehlgeschlagen", "cancelled": "Abgebrochen"}
+        self._set_batch_status(self._batch_index, labels[outcome])
+        if self._run_dir is not None and any((self._run_dir / name).is_file() for name in ("summary.json", "frequencies.csv")):
+            button = QPushButton("Ergebnisse")
+            config = self._batch_configs[self._batch_index]
+            run_dir = self._run_dir
+            button.clicked.connect(lambda _checked=False, settings=config, path=run_dir: self._show_batch_result(settings, path))
+            self.batch_table.setCellWidget(self._batch_index, 3, button)
+        self._persist_batch()
+
+    def _finish_batch(self) -> None:
+        self._batch_active = False
+        completed = sum(record["status"] == "completed" for record in self._batch_records)
+        failed = sum(record["status"] == "failed" for record in self._batch_records)
+        for row, record in enumerate(self._batch_records):
+            if record["status"] == "pending":
+                self._set_batch_status(row, "Nicht gestartet")
+        label = "Batch abgebrochen" if self._batch_stop_requested else "Batch abgeschlossen"
+        self.batch_status.setText(f"{label}: {completed} abgeschlossen, {failed} fehlgeschlagen")
+        self.status_label.setText(label)
+        self._persist_batch()
+        self._set_running_controls(False)
+        if self._close_when_finished:
+            self.close()
+
+    def _show_batch_result(self, config: RunConfig, run_dir: Path) -> None:
+        if self._process is not None or self._batch_active:
+            return
+        self.mesh_edit.setText(str(config.mesh_path))
+        self.roadmap_edit.setText(str(config.roadmap_path or ""))
+        self._catalog_auto_roadmap = None
+        self._run_dir = run_dir
+        self._output_dir = config.output_dir
+        self._run_started_at = 0
+        self._mode = "run"
+        self.result_table.setRowCount(0)
+        self.stability_rank_table.setRowCount(0)
+        self.stability_curve_table.setRowCount(0)
+        self.preview_table.setRowCount(0)
+        self.preview_image_button.setEnabled(False)
+        self._preview_record = None
+        self._load_result_file()
+        self.tabs.setCurrentIndex(0)
+        self.status_label.setText(f"Ergebnisse: {config.mesh_path.stem}")
+
+    def _launch_config(self, config: RunConfig, mode: str) -> bool:
+        self._run_dir = None
+        try:
             config.output_dir.mkdir(parents=True, exist_ok=True)
             stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
             config_path = config.output_dir / f"gui_config_{stamp}.json"
@@ -347,8 +677,11 @@ class DropSimulationWindow(QMainWindow):
                 encoding="utf-8",
             )
         except (OSError, TypeError, ValueError) as exc:
-            QMessageBox.warning(self, "Eingabe prüfen", str(exc))
-            return
+            if self._batch_active:
+                self._log_line(f"Werkstück konnte nicht gestartet werden: {exc}")
+            else:
+                QMessageBox.warning(self, "Eingabe prüfen", str(exc))
+            return False
 
         self._mode = mode
         self._run_started_at = time.time()
@@ -367,11 +700,10 @@ class DropSimulationWindow(QMainWindow):
         self.progress.setRange(0, config.trials)
         self.progress.setValue(0)
         self.status_label.setText("Sichtbare Falltests laufen …" if mode == "watch" else "Falltests laufen …")
-        self.log.clear()
+        if not self._batch_active:
+            self.log.clear()
         self._log_line(f"Konfiguration: {config_path}")
-        self.start_button.setEnabled(False)
-        self.preview_button.setEnabled(False)
-        self.cancel_button.setEnabled(True)
+        self._set_running_controls(True)
 
         process = QProcess(self)
         process.setProgram(sys.executable)
@@ -384,10 +716,17 @@ class DropSimulationWindow(QMainWindow):
         process.errorOccurred.connect(self._process_error)
         self._process = process
         process.start()
+        return True
 
     def _cancel(self) -> None:
         process = self._process
-        if process is None or self._cancel_requested:
+        if self._batch_active:
+            self._batch_stop_requested = True
+        if process is None:
+            if self._batch_active:
+                self._finish_batch()
+            return
+        if self._cancel_requested:
             return
         self._cancel_requested = True
         self.cancel_button.setEnabled(False)
@@ -402,6 +741,9 @@ class DropSimulationWindow(QMainWindow):
             self._cancel()
             event.ignore()
             return
+        if self._batch_active:
+            self._batch_stop_requested = True
+            self._finish_batch()
         event.accept()
 
     def _force_stop_if_needed(self) -> None:
@@ -504,12 +846,7 @@ class DropSimulationWindow(QMainWindow):
         if self._process is not None:
             self._log_line(f"Prozessfehler: {self._process.errorString()} ({error.name})")
             if error == QProcess.ProcessError.FailedToStart:
-                self.status_label.setText("Simulation konnte nicht gestartet werden")
-                self.start_button.setEnabled(True)
-                self.preview_button.setEnabled(True)
-                self.cancel_button.setEnabled(False)
-                self._process.deleteLater()
-                self._process = None
+                self._finished(2, QProcess.ExitStatus.CrashExit)
 
     def _finished(self, code: int, status: QProcess.ExitStatus) -> None:
         self._read_stdout()
@@ -522,19 +859,26 @@ class DropSimulationWindow(QMainWindow):
         self._stderr_buffer = ""
         self._load_result_file()
         if self._cancel_requested or code == 130:
+            outcome = "cancelled"
             self.status_label.setText("Abgebrochen")
         elif status == QProcess.ExitStatus.NormalExit and code == 0:
+            outcome = "completed"
             self.status_label.setText("Simulation abgeschlossen")
             if self._mode in {"run", "watch"}:
                 self.progress.setValue(self.progress.maximum())
         else:
+            outcome = "failed"
             self.status_label.setText(f"Simulation fehlgeschlagen (Exitcode {code})")
-        self.start_button.setEnabled(True)
-        self.preview_button.setEnabled(True)
-        self.cancel_button.setEnabled(False)
         if self._process is not None:
             self._process.deleteLater()
             self._process = None
+        if self._batch_active:
+            if outcome == "cancelled":
+                self._batch_stop_requested = True
+            self._record_batch_result(outcome, code)
+            QTimer.singleShot(0, self._advance_batch)
+            return
+        self._set_running_controls(False)
         if self._close_when_finished:
             self.close()
 
@@ -753,6 +1097,9 @@ class DropSimulationWindow(QMainWindow):
 
 def main() -> int:
     app = QApplication.instance() or QApplication(sys.argv)
+    icon_path = Path(__file__).resolve().parents[2] / "WindowsLaunchers" / "icons" / "drop-sim.ico"
+    if icon_path.is_file():
+        app.setWindowIcon(QIcon(str(icon_path)))
     window = DropSimulationWindow()
     window.show()
     return app.exec()
