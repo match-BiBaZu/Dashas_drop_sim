@@ -187,6 +187,22 @@ class DropSimulationWindow(QMainWindow):
         self.belt_spin = _spin(_default("belt_speed_mm_s", 100), 0, 200)
         self.belt_spin.setSuffix(" mm/s")
         form.addRow("Bandgeschwindigkeit", self.belt_spin)
+        self.belt_variation_spin = _spin(_default("belt_speed_variation_mm_s", 0), 0, 20, 2, 0.5)
+        self.belt_variation_spin.setPrefix("± ")
+        self.belt_variation_spin.setSuffix(" mm/s")
+        self.belt_variation_spin.setMaximum(min(20, self.belt_spin.value(), 200 - self.belt_spin.value()))
+        self.belt_spin.valueChanged.connect(
+            lambda value: self.belt_variation_spin.setMaximum(min(20, value, 200 - value)))
+        self.belt_variation_spin.setToolTip(
+            "Zeitliche Schwankung um die Bandgeschwindigkeit; ±0 schaltet sie aus. "
+            "Für das reale Band geschätzt: ±3 mm/s.")
+        form.addRow("Bandgeschwindigkeitsschwankung", self.belt_variation_spin)
+        self.belt_interval_spin = _spin(_default("belt_variation_interval_s", 0.2), 0.02, 10, 3, 0.05)
+        self.belt_interval_spin.setSuffix(" s")
+        self.belt_interval_spin.setToolTip(
+            "Abstand zwischen zufälligen Geschwindigkeitswerten; Übergänge sind glatt. "
+            "0,2 s ist eine ungemessene Startannahme.")
+        form.addRow("Änderungsintervall Band", self.belt_interval_spin)
         self.height_spin = _spin(_default("drop_height_mm", 100), 0, 200)
         self.height_spin.setSuffix(" mm")
         self.height_spread_spin = _spin(_default("drop_height_spread_mm", 0), 0, 100)
@@ -226,6 +242,14 @@ class DropSimulationWindow(QMainWindow):
         self.roughness_check = QCheckBox("Zufällige Unebenheitsimpulse aktivieren")
         self.roughness_check.setChecked(bool(_default("roughness_enabled", False)))
         roughness_layout.addWidget(self.roughness_check)
+        self.roughness_model_combo = QComboBox()
+        self.roughness_model_combo.addItem("Kontaktimpulse entlang der Rutsche", "longitudinal_traction")
+        self.roughness_model_combo.addItem("Flache Unebenheitsstöße mit Reibung", "microfacet")
+        self.roughness_model_combo.setCurrentIndex(max(0, self.roughness_model_combo.findData(
+            _default("roughness_model", "longitudinal_traction"))))
+        self.roughness_model_combo.setEnabled(self.roughness_check.isChecked())
+        self.roughness_check.toggled.connect(self.roughness_model_combo.setEnabled)
+        roughness_layout.addWidget(self.roughness_model_combo)
         roughness_grid = QGridLayout()
         roughness_grid.addWidget(QLabel("PTFE-Wand"), 0, 1)
         roughness_grid.addWidget(QLabel("PE-Band"), 0, 2)
@@ -247,7 +271,8 @@ class DropSimulationWindow(QMainWindow):
             lambda checked: [spin.setEnabled(checked) for spin in self.roughness_spins.values()])
         roughness_layout.addLayout(roughness_grid)
         roughness_note = QLabel(
-            "Statistisches Ersatzmodell: Höhe und Länge bestimmen die Impulsstärke, "
+            "Statistisches Ersatzmodell: Kontaktimpulse entlang der Rutsche oder flache Unebenheitsstöße. "
+            "Normalkraft, Relativgeschwindigkeit und Höhe/Länge bestimmen die Impulsstärke, "
             "der Abstand die Häufigkeit entlang des relativen Gleitwegs. "
             "Wandwerte sind Startschätzungen; 0 mm Höhe schaltet eine Fläche aus."
         )
@@ -582,6 +607,8 @@ class DropSimulationWindow(QMainWindow):
         return {
             "trials": self.trials_spin, "workers": self.workers_spin, "seed": self.seed_spin,
             "belt_speed_mm_s": self.belt_spin,
+            "belt_speed_variation_mm_s": self.belt_variation_spin,
+            "belt_variation_interval_s": self.belt_interval_spin,
             "drop_height_mm": self.height_spin, "drop_height_spread_mm": self.height_spread_spin,
             "lateral_mm": self.lateral_spin, "lateral_spread_mm": self.lateral_spread_spin,
             "density_g_cm3": self.density_spin, "mu_belt": self.belt_mu_spin, "mu_wall": self.wall_mu_spin,
@@ -599,7 +626,8 @@ class DropSimulationWindow(QMainWindow):
         if not levels:
             raise ValueError("Mindestens eine Störstufe ist erforderlich.")
         return {**{name: widget.value() for name, widget in self._parameter_widgets().items()},
-                "roughness_enabled": self.roughness_check.isChecked(), "disturbance_levels_mm": levels}
+                "roughness_enabled": self.roughness_check.isChecked(),
+                "roughness_model": self.roughness_model_combo.currentData(), "disturbance_levels_mm": levels}
 
     def _save_defaults(self) -> None:
         try:
@@ -628,6 +656,8 @@ class DropSimulationWindow(QMainWindow):
                 widget.setValue(parameters[name])
         if "roughness_enabled" in parameters:
             self.roughness_check.setChecked(parameters["roughness_enabled"])
+        if "roughness_model" in parameters:
+            self.roughness_model_combo.setCurrentIndex(self.roughness_model_combo.findData(parameters["roughness_model"]))
         if "disturbance_levels_mm" in parameters:
             self.levels_edit.setText(", ".join(str(value) for value in parameters["disturbance_levels_mm"]))
         for name, edit in (("mesh_path", self.mesh_edit), ("roadmap_path", self.roadmap_edit),

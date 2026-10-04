@@ -21,7 +21,8 @@ from .geometry import PreparedPart, prepare_part
 from .physics import ChuteSimulator, TrialOutcome
 from .pose_matching import PoseResolver
 from .parallel import SimulationPool, drop_job, kick_job
-from .roughness import MODEL_VERSION, MIN_SLIP_M_S
+from .roughness import MODEL_VERSIONS, MIN_SLIP_M_S
+from .belt import MODEL_VERSION as BELT_MODEL_VERSION
 
 
 EventCallback = Callable[[dict[str, Any]], None]
@@ -217,6 +218,7 @@ def _stability_rows(
             "roughness_seed": outcome.seed,
             "roughness_impulse_count": len(outcome.roughness_events),
             "roughness_events": outcome.roughness_events,
+            "belt_speed_control_points": outcome.belt_speed_control_points,
         })
         emit({"event": "stability_progress", "pose_id": key,
               "completed": len(individual), "total": planned})
@@ -301,12 +303,24 @@ def build_manifest(config: RunConfig, part: PreparedPart, resolver: PoseResolver
         },
         "surface_roughness": {
             "enabled": config.roughness_enabled,
-            "model": MODEL_VERSION,
+            "model": MODEL_VERSIONS[config.roughness_model],
             "minimum_sliding_speed_mm_s": MIN_SLIP_M_S * 1000,
             "sampling_interval_s": max(1, round(0.005 / config.timestep_s)) * config.timestep_s,
             "restitution": 0.0,
+            "additional_friction": ("Longitudinal traction impulse from an equivalent friction increment mu * height/ramp; duration ramp/abs(longitudinal slip); capped at slip cancellation"
+                                    if config.roughness_model == "longitudinal_traction"
+                                    else "Coulomb-limited sliding impulse on the virtual facet; mu from each surface"),
             "contact_sampling": "normal-load times sliding-speed weighted active MuJoCo contact points",
             "interpretation": "Uncalibrated stochastic micro-impacts per relative sliding distance; not a fixed surface map or resolved scratch geometry.",
+        },
+        "belt_speed_variation": {
+            "enabled": config.belt_speed_variation_mm_s > 0,
+            "model": BELT_MODEL_VERSION,
+            "speed_range_mm_s": [config.belt_speed_mm_s - config.belt_speed_variation_mm_s,
+                                 config.belt_speed_mm_s + config.belt_speed_variation_mm_s],
+            "control_point_interval_s": config.belt_variation_interval_s,
+            "control_point_clock": "elapsed time from start of observation (after reseating for stability trials)",
+            "interpretation": "Uniform random speed targets joined by smooth cosine transitions; forces arise from MuJoCo contact friction, not direct body kicks.",
         },
         "software": {
             "dashas-drop-sim": __version__, "mujoco": mujoco.__version__,
@@ -415,6 +429,7 @@ def run_experiment(
         "final_wall_contact", "final_qpos",
         "roughness_impulse_count",
         "actual_drop_height_mm", "actual_lateral_mm", "initial_pos_chute_mm",
+        "belt_speed_control_points",
     ], rows)
     frequencies = _frequency_rows(rows, len(rows), resolver.known_pose_ids) if rows else []
     example_by_key = {row["pose_key"]: row for row in rows
@@ -444,6 +459,7 @@ def run_experiment(
         "direction_chute", "retained", "result_status", "result_roadmap_pose_id",
         "result_match_status", "result_quat_xyzw", "settled_trace_quat_xyzw", "travel_mm",
         "roughness_seed", "roughness_impulse_count",
+        "belt_speed_control_points",
     ], disturbances)
     roughness_events = []
     for row in rows:
@@ -459,8 +475,11 @@ def run_experiment(
     _write_jsonl(run_dir / "roughness_events.jsonl", roughness_events)
     _write_csv(run_dir / "roughness_events.csv", [
         "phase", "trial", "disturbance_index", "source_pose_id", "roughness_seed",
-        "time_s", "surface", "contact_pos_chute_mm", "relative_sliding_speed_mm_s",
+        "time_s", "surface", "model", "contact_pos_chute_mm", "relative_sliding_speed_mm_s",
         "sampled_height_mm", "impulse_ns", "impulse_chute_ns", "effective_mass_kg",
+        "normal_impulse_ns", "friction_impulse_ns", "friction_coefficient",
+        "angular_impulse_chute_nms", "belt_speed_mm_s",
+        "contact_normal_force_n", "effective_pulse_duration_s", "friction_impulse_limit_ns",
         "body_energy_change_j", "relative_energy_change_j",
     ], roughness_events)
     _write_csv(run_dir / "stability.csv", [

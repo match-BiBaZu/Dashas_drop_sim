@@ -23,6 +23,7 @@ from .config import RunConfig
 from .geometry import PreparedPart
 from .roughness import ContactRoughness
 from .release import sample_release
+from .belt import BeltSpeedProfile
 
 
 def _numbers(values: np.ndarray | tuple[float, ...] | list[float]) -> str:
@@ -63,6 +64,7 @@ class TrialOutcome:
     actual_drop_height_mm: float | None = None
     actual_lateral_mm: float | None = None
     initial_pos_chute_mm: tuple[float, ...] = ()
+    belt_speed_control_points: tuple[dict, ...] = ()
 
     def to_dict(self) -> dict:
         return {**asdict(self), "roughness_impulse_count": len(self.roughness_events)}
@@ -226,6 +228,7 @@ class ChuteSimulator:
     def _spawn(self, local_quat_xyzw: np.ndarray, *, drop_height_mm: float | None = None,
                lateral_mm: float | None = None) -> None:
         mujoco.mj_resetData(self.model, self.data)
+        self.model.geom_surfacevel[self.floor_id, 0] = self.config.belt_speed_mm_s / 1000
         local_part = Rotation.from_quat(local_quat_xyzw)
         vertices = self._centered_vertices_m
         rotated = local_part.apply(vertices)
@@ -327,12 +330,17 @@ class ChuteSimulator:
                      if cfg.roughness_enabled and (cfg.roughness_wall_height_mm > 0
                                                    or cfg.roughness_belt_height_mm > 0) else None)
         roughness_stride = max(1, round(0.005 / cfg.timestep_s))
+        belt_profile = BeltSpeedProfile(cfg, seed) if cfg.belt_speed_variation_mm_s > 0 else None
+        profile_start_s = float(data.time)
         status = "timeout"
         step = 0
         while data.time < max_time:
             if cancel is not None and cancel():
                 status = "cancelled"
                 break
+            if belt_profile is not None:
+                self.model.geom_surfacevel[self.floor_id, 0] = (
+                    belt_profile.speed_mm_s(data.time - profile_start_s) / 1000)
             mujoco.mj_step(self.model, data)
             step += 1
             if roughness is not None and step % roughness_stride == 0:
@@ -403,6 +411,7 @@ class ChuteSimulator:
             actual_drop_height_mm=actual_drop_height_mm,
             actual_lateral_mm=actual_lateral_mm,
             initial_pos_chute_mm=initial_pos,
+            belt_speed_control_points=belt_profile.control_points() if belt_profile is not None else (),
         )
 
     def drop(
@@ -443,6 +452,7 @@ class ChuteSimulator:
         cancel: Callable[[], bool] | None = None,
     ) -> TrialOutcome:
         mujoco.mj_resetData(self.model, self.data)
+        self.model.geom_surfacevel[self.floor_id, 0] = self.config.belt_speed_mm_s / 1000
         source = np.asarray(source_qpos, dtype=float)
         local_pos = self.R_chute_world @ source[:3]
         local_pos[0] = self.start_x_m
@@ -472,7 +482,8 @@ class ChuteSimulator:
         return self._run_until_end(
             trial=index,
             seed=(int(np.random.SeedSequence([self.config.seed, index + 1, 0x51AB1E])
-                      .generate_state(1, dtype=np.uint32)[0]) if self.config.roughness_enabled else 0),
+                      .generate_state(1, dtype=np.uint32)[0])
+                  if self.config.roughness_enabled or self.config.belt_speed_variation_mm_s > 0 else 0),
             initial_quat=self._local_quat(self.data),
             cancel=cancel,
             trace_stable=True,
