@@ -22,6 +22,7 @@ from scipy.spatial.transform import Rotation
 from .config import RunConfig
 from .geometry import PreparedPart
 from .roughness import ContactRoughness
+from .release import sample_release
 
 
 def _numbers(values: np.ndarray | tuple[float, ...] | list[float]) -> str:
@@ -59,6 +60,9 @@ class TrialOutcome:
     final_qpos: tuple[float, ...]
     settled_trace_quat_xyzw: tuple[tuple[float, float, float, float], ...]
     roughness_events: tuple[dict, ...] = ()
+    actual_drop_height_mm: float | None = None
+    actual_lateral_mm: float | None = None
+    initial_pos_chute_mm: tuple[float, ...] = ()
 
     def to_dict(self) -> dict:
         return {**asdict(self), "roughness_impulse_count": len(self.roughness_events)}
@@ -219,17 +223,19 @@ class ChuteSimulator:
             wall |= contact.geom1 == self.wall_id or contact.geom2 == self.wall_id
         return floor, wall
 
-    def _spawn(self, local_quat_xyzw: np.ndarray) -> None:
+    def _spawn(self, local_quat_xyzw: np.ndarray, *, drop_height_mm: float | None = None,
+               lateral_mm: float | None = None) -> None:
         mujoco.mj_resetData(self.model, self.data)
         local_part = Rotation.from_quat(local_quat_xyzw)
         vertices = self._centered_vertices_m
         rotated = local_part.apply(vertices)
-        lateral = self.config.lateral_mm / 1000
+        lateral = (self.config.lateral_mm if lateral_mm is None else lateral_mm) / 1000
+        height = self.config.drop_height_mm if drop_height_mm is None else drop_height_mm
         margin = 0.002
         bisector_height = max(
             math.sqrt(2) * (margin - float(np.min(rotated[:, 1]))) - lateral,
             math.sqrt(2) * (margin - float(np.min(rotated[:, 2]))) + lateral,
-        ) + self.config.drop_height_mm / 1000
+        ) + height / 1000
         local_pos = np.array(
             [self.start_x_m, (bisector_height + lateral) / math.sqrt(2),
              (bisector_height - lateral) / math.sqrt(2)],
@@ -298,8 +304,11 @@ class ChuteSimulator:
         cancel: Callable[[], bool] | None = None,
         viewer=None,
         trace_stable: bool = False,
+        actual_drop_height_mm: float | None = None,
+        actual_lateral_mm: float | None = None,
     ) -> TrialOutcome:
         cfg, data = self.config, self.data
+        initial_pos = tuple(float(value * 1000) for value in self._local_position(data))
         start_x = float(self._local_position(data)[0])
         belt_m_s = cfg.belt_speed_mm_s / 1000
         max_time = 10.0 if belt_m_s == 0 else max(10.0, 5.0 + 1.5 * (self.exit_x_m - start_x) / belt_m_s)
@@ -391,6 +400,9 @@ class ChuteSimulator:
             final_qpos=tuple(float(x) for x in data.qpos[:7]),
             settled_trace_quat_xyzw=tuple(settled_trace),
             roughness_events=tuple(roughness.events) if roughness is not None else (),
+            actual_drop_height_mm=actual_drop_height_mm,
+            actual_lateral_mm=actual_lateral_mm,
+            initial_pos_chute_mm=initial_pos,
         )
 
     def drop(
@@ -404,7 +416,8 @@ class ChuteSimulator:
     ) -> TrialOutcome:
         rng = np.random.default_rng(seed)
         local_quat = Rotation.random(random_state=rng).as_quat()
-        self._spawn(local_quat)
+        height, lateral = sample_release(self.config, seed)
+        self._spawn(local_quat, drop_height_mm=height, lateral_mm=lateral)
         if preview and viewer is not None:
             raise ValueError("preview and viewer cannot be combined")
         if preview:
@@ -414,9 +427,11 @@ class ChuteSimulator:
                 viewer.cam.distance = max(0.4, min(self.config.length_mm / 1000 * 0.6, 2.0))
                 viewer.cam.lookat[:] = self.data.qpos[:3]
                 return self._run_until_end(trial=index, seed=seed, initial_quat=local_quat,
-                                           cancel=cancel, viewer=viewer)
+                                           cancel=cancel, viewer=viewer,
+                                           actual_drop_height_mm=height, actual_lateral_mm=lateral)
         return self._run_until_end(trial=index, seed=seed, initial_quat=local_quat,
-                                   cancel=cancel, viewer=viewer)
+                                   cancel=cancel, viewer=viewer,
+                                   actual_drop_height_mm=height, actual_lateral_mm=lateral)
 
     def kick(
         self,

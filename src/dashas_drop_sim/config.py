@@ -18,7 +18,9 @@ class RunConfig:
     seed: int = 42
     belt_speed_mm_s: float = 100.0
     drop_height_mm: float = 100.0
+    drop_height_spread_mm: float = 0.0
     lateral_mm: float = 0.0
+    lateral_spread_mm: float = 0.0
     density_g_cm3: float = 1.15
     mu_belt: float = 0.40
     mu_wall: float = 0.20
@@ -48,6 +50,10 @@ class RunConfig:
             not self.roadmap_path.is_file() or self.roadmap_path.suffix.lower() not in {".json", ".yaml", ".yml"}
         ):
             raise ValueError("The optional roadmap must be an existing JSON or YAML file.")
+        self.validate_parameters()
+
+    def validate_parameters(self) -> None:
+        """Validate simulation settings even before a workpiece is selected."""
         if not isinstance(self.trials, int) or self.trials < 1:
             raise ValueError("trials must be a positive integer")
         if not isinstance(self.seed, int) or self.seed < 0:
@@ -59,7 +65,9 @@ class RunConfig:
         bounds = (
             ("belt_speed_mm_s", self.belt_speed_mm_s, 0, 200),
             ("drop_height_mm", self.drop_height_mm, 0, 200),
+            ("drop_height_spread_mm", self.drop_height_spread_mm, 0, 100),
             ("lateral_mm", self.lateral_mm, -100, 100),
+            ("lateral_spread_mm", self.lateral_spread_mm, 0, 100),
             ("density_g_cm3", self.density_g_cm3, 0.01, 30),
             ("mu_belt", self.mu_belt, 0, 5),
             ("mu_wall", self.mu_wall, 0, 5),
@@ -72,6 +80,12 @@ class RunConfig:
         for name, value, lower, upper in bounds:
             if not math.isfinite(value) or not lower <= value <= upper:
                 raise ValueError(f"{name} must be between {lower} and {upper}")
+        for center, spread, low, high, label in (
+            (self.drop_height_mm, self.drop_height_spread_mm, 0, 200, "Abwurfhöhe"),
+            (self.lateral_mm, self.lateral_spread_mm, -100, 100, "Querposition"),
+        ):
+            if center - spread < low - 1e-9 or center + spread > high + 1e-9:
+                raise ValueError(f"{label}: Sollwert ± Streubreite muss zwischen {low} und {high} mm liegen.")
         for surface in ("wall", "belt"):
             height = getattr(self, f"roughness_{surface}_height_mm")
             ramp = getattr(self, f"roughness_{surface}_ramp_mm")

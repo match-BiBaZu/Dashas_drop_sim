@@ -53,6 +53,7 @@ from .batch import Workpiece, batch_configs, find_roadmap
 from .catalog import SOURCE_COMMIT, catalog_models
 from .pose_image import render_pose_image
 from .roadmap_reindex import reindex_roadmaps
+from .settings import default_settings_path, load_defaults, save_defaults
 
 
 def _default(name: str, fallback: Any) -> Any:
@@ -80,7 +81,7 @@ def _spin(value: float, low: float, high: float, decimals: int = 1, step: float 
 class DropSimulationWindow(QMainWindow):
     """Configuration, launch control, and result view for drop tests."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, settings_path: Path | None = None) -> None:
         super().__init__()
         self.setWindowTitle("BiBaZu Falltest-Simulation")
         self.resize(1020, 850)
@@ -100,8 +101,10 @@ class DropSimulationWindow(QMainWindow):
         self._batch_records: list[dict[str, Any]] = []
         self._batch_index = -1
         self._batch_dir: Path | None = None
+        self._settings_path = Path(settings_path) if settings_path is not None else default_settings_path()
         self._build_ui()
         self._update_batch_count()
+        self._load_saved_defaults()
 
     def _build_ui(self) -> None:
         outer = QScrollArea()
@@ -186,11 +189,26 @@ class DropSimulationWindow(QMainWindow):
         form.addRow("Bandgeschwindigkeit", self.belt_spin)
         self.height_spin = _spin(_default("drop_height_mm", 100), 0, 200)
         self.height_spin.setSuffix(" mm")
-        form.addRow("Abwurfhöhe", self.height_spin)
+        self.height_spread_spin = _spin(_default("drop_height_spread_mm", 0), 0, 100)
+        self.height_spread_spin.setPrefix("± ")
+        self.height_spread_spin.setSuffix(" mm")
+        self.height_spread_spin.setMaximum(min(self.height_spin.value(), 200 - self.height_spin.value()))
+        self.height_spin.valueChanged.connect(
+            lambda value: self.height_spread_spin.setMaximum(min(value, 200 - value)))
+        form.addRow("Abwurfhöhe und Streubereich", self._spread_row(self.height_spin, self.height_spread_spin))
         self.lateral_spin = _spin(_default("lateral_mm", 0), -100, 100)
         self.lateral_spin.setSuffix(" mm")
         self.lateral_spin.setToolTip("Seitlicher Versatz von der Winkelhalbierenden zwischen Band und Wand")
-        form.addRow("Querposition", self.lateral_spin)
+        self.lateral_spread_spin = _spin(_default("lateral_spread_mm", 0), 0, 100)
+        self.lateral_spread_spin.setPrefix("± ")
+        self.lateral_spread_spin.setSuffix(" mm")
+        self.lateral_spread_spin.setMaximum(100 - abs(self.lateral_spin.value()))
+        self.lateral_spin.valueChanged.connect(
+            lambda value: self.lateral_spread_spin.setMaximum(100 - abs(value)))
+        form.addRow("Querposition und Streubereich", self._spread_row(self.lateral_spin, self.lateral_spread_spin))
+        spread_note = QLabel("Streuung gleichverteilt um den Sollwert; ±0 mm bedeutet einen festen Abwurfwert.")
+        spread_note.setWordWrap(True)
+        form.addRow("", spread_note)
         self.density_spin = _spin(_default("density_g_cm3", 1.15), 0.01, 30, 3, 0.01)
         self.density_spin.setSuffix(" g/cm³")
         form.addRow("Homogene Dichte", self.density_spin)
@@ -268,10 +286,14 @@ class DropSimulationWindow(QMainWindow):
         self.cancel_button.clicked.connect(self._cancel)
         self.batch_start_button = QPushButton("Werkstück-Batch starten")
         self.batch_start_button.clicked.connect(self._start_batch)
+        self.save_defaults_button = QPushButton("Als Standard speichern")
+        self.save_defaults_button.setToolTip("Einstellungen für den nächsten GUI-Start speichern")
+        self.save_defaults_button.clicked.connect(self._save_defaults)
         controls.addWidget(self.start_button)
         controls.addWidget(self.preview_button)
         controls.addWidget(self.batch_start_button)
         controls.addWidget(self.cancel_button)
+        controls.addWidget(self.save_defaults_button)
         controls.addStretch()
         layout.addLayout(controls)
 
@@ -331,6 +353,16 @@ class DropSimulationWindow(QMainWindow):
         layout.addWidget(self.log)
         outer.setWidget(page)
         self.setCentralWidget(outer)
+
+    @staticmethod
+    def _spread_row(center: QDoubleSpinBox, spread: QDoubleSpinBox) -> QWidget:
+        container = QWidget()
+        row = QHBoxLayout(container)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(center)
+        row.addWidget(spread)
+        spread.setToolTip("Halbe Breite des gleichverteilten Streubereichs; begrenzt durch den Sollwert")
+        return container
 
     @staticmethod
     def _path_row(edit: QLineEdit, handler: Any) -> QWidget:
@@ -460,6 +492,7 @@ class DropSimulationWindow(QMainWindow):
         self.start_button.setEnabled(not busy)
         self.preview_button.setEnabled(not busy)
         self.reindex_button.setEnabled(not busy)
+        self.save_defaults_button.setEnabled(not busy)
         self.batch_start_button.setEnabled(not busy and self.batch_table.rowCount() > 0)
         self.cancel_button.setEnabled(busy)
         self.batch_table.setEnabled(not busy)
@@ -541,13 +574,19 @@ class DropSimulationWindow(QMainWindow):
         if path:
             self.output_edit.setText(path)
 
-    def _make_config(self, workpiece: Workpiece | None = None) -> RunConfig:
-        mesh = str(workpiece.mesh_path) if workpiece else self.mesh_edit.text().strip()
-        output = self.output_edit.text().strip()
-        if not mesh:
-            raise ValueError("Bitte ein STL- oder STEP-Bauteil wählen.")
-        if not output:
-            raise ValueError("Bitte einen Ergebnisordner wählen.")
+    def _parameter_widgets(self) -> dict[str, QSpinBox | QDoubleSpinBox]:
+        return {
+            "trials": self.trials_spin, "workers": self.workers_spin, "seed": self.seed_spin,
+            "belt_speed_mm_s": self.belt_spin,
+            "drop_height_mm": self.height_spin, "drop_height_spread_mm": self.height_spread_spin,
+            "lateral_mm": self.lateral_spin, "lateral_spread_mm": self.lateral_spread_spin,
+            "density_g_cm3": self.density_spin, "mu_belt": self.belt_mu_spin, "mu_wall": self.wall_mu_spin,
+            "alpha_deg": self.alpha_spin, "beta_deg": self.beta_spin,
+            "length_mm": self.length_spin, "timestep_s": self.timestep_spin,
+            **self.roughness_spins,
+        }
+
+    def _parameter_values(self) -> dict[str, Any]:
         level_text = self.levels_edit.text().strip()
         try:
             levels = tuple(float(part.strip()) for part in level_text.split(",") if part.strip())
@@ -555,6 +594,54 @@ class DropSimulationWindow(QMainWindow):
             raise ValueError("Störstufen bitte als kommagetrennte Zahlen eingeben.") from exc
         if not levels:
             raise ValueError("Mindestens eine Störstufe ist erforderlich.")
+        return {**{name: widget.value() for name, widget in self._parameter_widgets().items()},
+                "roughness_enabled": self.roughness_check.isChecked(), "disturbance_levels_mm": levels}
+
+    def _save_defaults(self) -> None:
+        try:
+            parameters = self._parameter_values()
+            inputs = {name: str(Path(edit.text().strip()).expanduser().resolve()) if edit.text().strip() else ""
+                      for name, edit in (("mesh_path", self.mesh_edit), ("roadmap_path", self.roadmap_edit),
+                                         ("output_dir", self.output_edit))}
+            save_defaults(self._settings_path, parameters, inputs)
+        except (OSError, TypeError, ValueError) as exc:
+            QMessageBox.warning(self, "Starteinstellungen", str(exc))
+            return
+        self.status_label.setText("Einstellungen als Standard gespeichert")
+        self._log_line(f"Starteinstellungen: {self._settings_path}")
+
+    def _load_saved_defaults(self) -> None:
+        try:
+            data = load_defaults(self._settings_path)
+        except (OSError, TypeError, ValueError) as exc:
+            self._log_line(f"Gespeicherte Starteinstellungen konnten nicht geladen werden: {exc}")
+            return
+        if data is None:
+            return
+        parameters = data["parameters"]
+        for name, widget in self._parameter_widgets().items():
+            if name in parameters:
+                widget.setValue(parameters[name])
+        if "roughness_enabled" in parameters:
+            self.roughness_check.setChecked(parameters["roughness_enabled"])
+        if "disturbance_levels_mm" in parameters:
+            self.levels_edit.setText(", ".join(str(value) for value in parameters["disturbance_levels_mm"]))
+        for name, edit in (("mesh_path", self.mesh_edit), ("roadmap_path", self.roadmap_edit),
+                           ("output_dir", self.output_edit)):
+            if name in data["inputs"]:
+                edit.setText(data["inputs"][name])
+        previous = self.catalog_combo.blockSignals(True)
+        self.catalog_combo.setCurrentIndex(max(0, self.catalog_combo.findData(self.mesh_edit.text())))
+        self.catalog_combo.blockSignals(previous)
+        self._log_line(f"Starteinstellungen geladen: {self._settings_path}")
+
+    def _make_config(self, workpiece: Workpiece | None = None) -> RunConfig:
+        mesh = str(workpiece.mesh_path) if workpiece else self.mesh_edit.text().strip()
+        output = self.output_edit.text().strip()
+        if not mesh:
+            raise ValueError("Bitte ein STL- oder STEP-Bauteil wählen.")
+        if not output:
+            raise ValueError("Bitte einen Ergebnisordner wählen.")
         config = RunConfig(
             mesh_path=Path(mesh).expanduser().resolve(),
             roadmap_path=workpiece.roadmap_path if workpiece else (
@@ -562,22 +649,7 @@ class DropSimulationWindow(QMainWindow):
                 if self.roadmap_edit.text().strip() else None
             ),
             output_dir=Path(output).expanduser().resolve(),
-            trials=self.trials_spin.value(),
-            workers=self.workers_spin.value(),
-            seed=self.seed_spin.value(),
-            belt_speed_mm_s=self.belt_spin.value(),
-            drop_height_mm=self.height_spin.value(),
-            lateral_mm=self.lateral_spin.value(),
-            density_g_cm3=self.density_spin.value(),
-            mu_belt=self.belt_mu_spin.value(),
-            mu_wall=self.wall_mu_spin.value(),
-            alpha_deg=self.alpha_spin.value(),
-            beta_deg=self.beta_spin.value(),
-            length_mm=self.length_spin.value(),
-            timestep_s=self.timestep_spin.value(),
-            roughness_enabled=self.roughness_check.isChecked(),
-            **{name: spin.value() for name, spin in self.roughness_spins.items()},
-            disturbance_levels_mm=levels,
+            **self._parameter_values(),
         )
         config.validate()
         return config
@@ -972,6 +1044,9 @@ class DropSimulationWindow(QMainWindow):
             ("Zuordnung", data.get("match_status")),
             ("Abstand zur Roadmap-Pose (°)", data.get("match_distance_deg")),
             ("Seed", data.get("seed")),
+            ("Gezogene Abwurfhöhe (mm)", data.get("actual_drop_height_mm")),
+            ("Gezogene Querposition (mm)", data.get("actual_lateral_mm")),
+            ("Abwurfposition in Rutschenachsen (mm)", data.get("initial_pos_chute_mm")),
             ("Simulationszeit (s)", data.get("sim_time_s")),
             ("Weg (mm)", data.get("travel_mm")),
             ("Erstes Einpendeln (s)", data.get("first_settled_s")),

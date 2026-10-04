@@ -292,6 +292,13 @@ def build_manifest(config: RunConfig, part: PreparedPart, resolver: PoseResolver
         "classification_tolerance_deg": resolver.match_tolerance_deg,
         "classification_ambiguity_margin_deg": resolver.ambiguity_margin_deg,
         "unknown_cluster_tolerance_deg": resolver.cluster_tolerance_deg,
+        "release_distribution": {
+            "type": "independent_uniform_center_plus_minus_spread",
+            "drop_height_range_mm": [config.drop_height_mm - config.drop_height_spread_mm,
+                                     config.drop_height_mm + config.drop_height_spread_mm],
+            "lateral_range_mm": [config.lateral_mm - config.lateral_spread_mm,
+                                 config.lateral_mm + config.lateral_spread_mm],
+        },
         "surface_roughness": {
             "enabled": config.roughness_enabled,
             "model": MODEL_VERSION,
@@ -361,6 +368,7 @@ def run_experiment(
                       "final_pos_chute_mm", "final_quat_xyzw", "final_floor_contact",
                       "final_wall_contact",
                       "roughness_impulse_count",
+                      "actual_drop_height_mm", "actual_lateral_mm", "initial_pos_chute_mm",
                   )}})
         if visible and not cancel():
             import mujoco.viewer
@@ -406,6 +414,7 @@ def run_experiment(
         "sim_time_s", "travel_mm", "first_settled_s", "final_floor_contact",
         "final_wall_contact", "final_qpos",
         "roughness_impulse_count",
+        "actual_drop_height_mm", "actual_lateral_mm", "initial_pos_chute_mm",
     ], rows)
     frequencies = _frequency_rows(rows, len(rows), resolver.known_pose_ids) if rows else []
     example_by_key = {row["pose_key"]: row for row in rows
