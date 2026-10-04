@@ -150,7 +150,9 @@ class ContactRoughness:
             mujoco.mj_jac(self.model, data, jacobian, None, point, self.body_id)
             relative = jacobian @ data.qvel - velocity
             tangent = relative - np.dot(relative, surface.normal) * surface.normal
-            candidates.append((point, jacobian, relative, float(np.linalg.norm(tangent)), float(force[0])))
+            speed = (abs(float(relative @ self.longitudinal)) if self.mode == "longitudinal_traction"
+                     else float(np.linalg.norm(tangent)))
+            candidates.append((point, jacobian, relative, speed, float(force[0])))
         return candidates
 
     def advance(self, data: mujoco.MjData, elapsed_s: float) -> None:
@@ -193,6 +195,7 @@ class ContactRoughness:
                 else:
                     impulse, normal_impulse, friction_impulse, inverse_mass = frictional_facet_impulse(
                         mobility, relative, surface.normal, height, surface.ramp_m, surface.friction)
+                    friction_limit = surface.friction * normal_impulse
                 if np.linalg.norm(impulse) <= 0:
                     continue
                 velocity_change = response.T @ impulse
@@ -205,7 +208,9 @@ class ContactRoughness:
                 self.events.append({
                     "time_s": float(data.time), "surface": surface.name, "model": self.mode,
                     "contact_pos_chute_mm": (self.rotation.T @ point * 1000).tolist(),
-                    "relative_sliding_speed_mm_s": speed * 1000,
+                    "relative_sliding_speed_mm_s": float(np.linalg.norm(
+                        relative - np.dot(relative, surface.normal) * surface.normal) * 1000),
+                    "relative_longitudinal_speed_mm_s": float(relative @ self.longitudinal * 1000),
                     "sampled_height_mm": height * 1000,
                     "impulse_ns": float(np.linalg.norm(impulse)),
                     "normal_impulse_ns": normal_impulse,

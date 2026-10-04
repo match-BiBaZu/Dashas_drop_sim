@@ -306,12 +306,14 @@ def build_manifest(config: RunConfig, part: PreparedPart, resolver: PoseResolver
             "model": MODEL_VERSIONS[config.roughness_model],
             "minimum_sliding_speed_mm_s": MIN_SLIP_M_S * 1000,
             "sampling_interval_s": max(1, round(0.005 / config.timestep_s)) * config.timestep_s,
-            "restitution": 0.0,
+            "restitution": 0.0 if config.roughness_model == "microfacet" else None,
             "additional_friction": ("Longitudinal traction impulse from an equivalent friction increment mu * height/ramp; duration ramp/abs(longitudinal slip); capped at slip cancellation"
                                     if config.roughness_model == "longitudinal_traction"
                                     else "Coulomb-limited sliding impulse on the virtual facet; mu from each surface"),
-            "contact_sampling": "normal-load times sliding-speed weighted active MuJoCo contact points",
-            "interpretation": "Uncalibrated stochastic micro-impacts per relative sliding distance; not a fixed surface map or resolved scratch geometry.",
+            "contact_sampling": ("normal-load times longitudinal-slip-speed weighted active MuJoCo contact points"
+                                 if config.roughness_model == "longitudinal_traction"
+                                 else "normal-load times sliding-speed weighted active MuJoCo contact points"),
+            "interpretation": "Uncalibrated stochastic contact impulses per relative sliding distance; not a fixed surface map or resolved scratch geometry. Traction strength is an equivalent friction assumption, not inferred from scratch depth alone.",
         },
         "belt_speed_variation": {
             "enabled": config.belt_speed_variation_mm_s > 0,
@@ -476,6 +478,7 @@ def run_experiment(
     _write_csv(run_dir / "roughness_events.csv", [
         "phase", "trial", "disturbance_index", "source_pose_id", "roughness_seed",
         "time_s", "surface", "model", "contact_pos_chute_mm", "relative_sliding_speed_mm_s",
+        "relative_longitudinal_speed_mm_s",
         "sampled_height_mm", "impulse_ns", "impulse_chute_ns", "effective_mass_kg",
         "normal_impulse_ns", "friction_impulse_ns", "friction_coefficient",
         "angular_impulse_chute_nms", "belt_speed_mm_s",

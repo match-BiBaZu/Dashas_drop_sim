@@ -8,7 +8,9 @@ import trimesh
 from dashas_drop_sim.config import RunConfig
 from dashas_drop_sim.geometry import prepare_part
 from dashas_drop_sim.physics import ChuteSimulator
-from dashas_drop_sim.roughness import ContactRoughness, facet_impulse
+from dashas_drop_sim.roughness import (
+    ContactRoughness, facet_impulse, frictional_facet_impulse, longitudinal_contact_impulse,
+)
 
 
 def test_facet_impulse_scales_with_mass_speed_and_slope_without_adding_energy():
@@ -26,13 +28,13 @@ def test_facet_impulse_scales_with_mass_speed_and_slope_without_adding_energy():
     assert facet_impulse(np.eye(3), velocity, normal, 0, 0.003)[0] == 0
 
 
-@pytest.fixture
-def rough_cube(tmp_path):
+@pytest.fixture(params=("longitudinal_traction", "microfacet"))
+def rough_cube(tmp_path, request):
     path = tmp_path / "cube.stl"
     trimesh.creation.box(extents=[20, 20, 20]).export(path)
     part = prepare_part(path, tmp_path / "cache", 1.15)
     config = RunConfig(mesh_path=path, output_dir=tmp_path / "results", length_mm=300,
-                       drop_height_mm=0, workers=1, roughness_enabled=True)
+                       drop_height_mm=0, workers=1, roughness_enabled=True, roughness_model=request.param)
     config.validate()
     return config, part
 
@@ -71,6 +73,7 @@ def test_no_impulses_without_contact_or_relative_motion(rough_cube):
     assert roughness.events == []
     config.belt_speed_mm_s = 0
     config.roughness_belt_height_mm = 0.1
+    simulator._spawn(np.array([0., 0., 0., 1.]))  # Reset the model's surface velocity too.
     roughness = ContactRoughness(config, simulator.model, simulator.R_world_chute,
                                 simulator.floor_id, simulator.wall_id, 123)
     roughness.advance(simulator.data, 100)
@@ -114,6 +117,7 @@ def test_belt_impulses_use_belt_relative_velocity_and_produce_rotation(rough_cub
 
 def test_half_timestep_preserves_small_roughness_transport(rough_cube):
     config, part = rough_cube
+    config.belt_speed_variation_mm_s = 3
     results = []
     for timestep in (0.001, 0.0005):
         config.timestep_s = timestep
@@ -133,3 +137,61 @@ def test_roughness_configuration_roundtrip_and_small_slope_validation(rough_cube
     config.roughness_wall_ramp_mm = 0.1
     with pytest.raises(ValueError, match="height/ramp"):
         config.validate()
+
+
+def test_longitudinal_impulse_is_loaded_friction_limited_and_passive():
+    axis = np.array([1., 0., 0.])
+    velocity = np.array([0.1, 0., 0.])
+    impulse, inverse_mass, limit, duration = longitudinal_contact_impulse(
+        np.eye(3), velocity, axis, 0.0001, 0.003, 9.81, 0.2)
+    assert impulse[0] < 0 and impulse[1] == impulse[2] == 0
+    assert np.linalg.norm(impulse) <= limit
+    assert duration == pytest.approx(0.003 / 0.1)
+    assert limit == pytest.approx(0.2 * (0.0001 / 0.003) * 9.81 * duration)
+    assert inverse_mass == 1
+    assert 0 <= (velocity + impulse)[0] < velocity[0]
+    assert impulse @ velocity + 0.5 * impulse @ impulse <= 0
+    heavy, _, _, _ = longitudinal_contact_impulse(
+        np.eye(3) / 2, velocity, axis, 0.0001, 0.003, 2 * 9.81, 0.2)
+    assert heavy == pytest.approx(2 * impulse)
+    for friction, load in ((0, 9.81), (0.2, 0)):
+        assert not np.any(longitudinal_contact_impulse(
+            np.eye(3), velocity, axis, 0.0001, 0.003, load, friction)[0])
+    # Large budgets cannot reverse the slip, and either direction dissipates.
+    backwards = -velocity
+    stopped, *_ = longitudinal_contact_impulse(
+        np.eye(3), backwards, axis, 0.0001, 0.003, 1e6, 0.2)
+    assert stopped == pytest.approx(-backwards)
+
+
+def test_frictional_facet_has_stronger_longitudinal_component_and_is_passive():
+    velocity = np.array([0.1, 0., 0.])
+    normal = np.array([0., 1., 0.])
+    magnitude, facet, _ = facet_impulse(np.eye(3), velocity, normal, 0.0001, 0.003)
+    impulse, normal_impulse, friction_impulse, _ = frictional_facet_impulse(
+        np.eye(3), velocity, normal, 0.0001, 0.003, 0.2)
+    assert normal_impulse == magnitude
+    assert 0 < friction_impulse <= 0.2 * normal_impulse
+    assert abs(impulse[0]) > 5 * abs(magnitude * facet[0])
+    assert impulse @ velocity + 0.5 * impulse @ impulse <= 0
+
+
+def test_longitudinal_contact_events_create_a_tipping_moment(rough_cube):
+    config, part = rough_cube
+    config.roughness_model = "longitudinal_traction"
+    simulator = ChuteSimulator(config, part)
+    simulator._spawn(np.array([0., 0., 0., 1.]))
+    simulator.data.qpos[:3] = simulator.R_world_chute @ np.array([0.05, 0.00999, 0.00999])
+    simulator.data.qvel[:3] = simulator.R_world_chute @ np.array([0.1, 0., 0.])
+    roughness = ContactRoughness(config, simulator.model, simulator.R_world_chute,
+                                simulator.floor_id, simulator.wall_id, 123)
+    roughness.advance(simulator.data, 0.5)
+    assert roughness.events
+    assert np.linalg.norm(simulator.data.qvel[3:]) > 0
+    for event in roughness.events:
+        assert event["impulse_chute_ns"][1:] == pytest.approx([0, 0], abs=1e-15)
+        assert event["normal_impulse_ns"] == 0
+        assert event["contact_normal_force_n"] > 0
+        assert event["friction_impulse_ns"] <= event["friction_impulse_limit_ns"]
+        assert np.linalg.norm(event["angular_impulse_chute_nms"][1:]) > 0
+        assert event["relative_energy_change_j"] <= 1e-12

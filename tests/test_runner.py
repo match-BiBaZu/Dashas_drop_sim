@@ -100,6 +100,7 @@ def test_parallel_drops_match_serial_seeded_results(cube: Path, roughness_enable
     serial_config.trials = 2
     serial_config.workers = 1
     serial_config.roughness_enabled = roughness_enabled
+    serial_config.belt_speed_variation_mm_s = 3
     serial_config.drop_height_mm = 20
     serial_config.drop_height_spread_mm = 10
     serial_config.lateral_spread_mm = 5
@@ -107,6 +108,7 @@ def test_parallel_drops_match_serial_seeded_results(cube: Path, roughness_enable
     parallel_config.trials = 2
     parallel_config.workers = 2
     parallel_config.roughness_enabled = roughness_enabled
+    parallel_config.belt_speed_variation_mm_s = 3
     parallel_config.drop_height_mm = 20
     parallel_config.drop_height_spread_mm = 10
     parallel_config.lateral_spread_mm = 5
@@ -122,6 +124,7 @@ def test_parallel_drops_match_serial_seeded_results(cube: Path, roughness_enable
         assert left["pose_key"] == right["pose_key"]
         assert left["final_qpos"] == pytest.approx(right["final_qpos"], abs=1e-10)
         assert left["roughness_events"] == right["roughness_events"]
+        assert left["belt_speed_control_points"] == right["belt_speed_control_points"]
         assert left["actual_drop_height_mm"] == right["actual_drop_height_mm"]
         assert left["actual_lateral_mm"] == right["actual_lateral_mm"]
         assert 10 <= left["actual_drop_height_mm"] <= 30
@@ -130,6 +133,8 @@ def test_parallel_drops_match_serial_seeded_results(cube: Path, roughness_enable
     assert float(trial_csv[0]["actual_drop_height_mm"]) == serial_rows[0]["actual_drop_height_mm"]
     manifest = json.loads((serial.run_dir / "manifest.json").read_text())
     assert manifest["release_distribution"]["drop_height_range_mm"] == [10, 30]
+    assert manifest["belt_speed_variation"]["speed_range_mm_s"] == [97, 103]
+    assert json.loads(trial_csv[0]["belt_speed_control_points"]) == serial_rows[0]["belt_speed_control_points"]
     assert serial.summary["pose_frequencies"] == parallel.summary["pose_frequencies"]
     assert (serial.run_dir / "roughness_events.csv").read_bytes() == (parallel.run_dir / "roughness_events.csv").read_bytes()
     if roughness_enabled:

@@ -125,6 +125,8 @@ Beispiel für `config.json` (Pfade anpassen):
   "workers": 4,
   "seed": 42,
   "belt_speed_mm_s": 100.0,
+  "belt_speed_variation_mm_s": 3.0,
+  "belt_variation_interval_s": 0.2,
   "drop_height_mm": 100.0,
   "drop_height_spread_mm": 20.0,
   "lateral_mm": 0.0,
@@ -137,6 +139,7 @@ Beispiel für `config.json` (Pfade anpassen):
   "length_mm": 1300.0,
   "timestep_s": 0.001,
   "roughness_enabled": false,
+  "roughness_model": "longitudinal_traction",
   "roughness_wall_height_mm": 0.1,
   "roughness_wall_ramp_mm": 3.0,
   "roughness_wall_spacing_mm": 10.0,
@@ -193,7 +196,43 @@ PTFE-Wand sind maximal 0,1 mm wirksame Kantenhöhe, 3 mm wirksame Kantenlänge u
 10 mm mittlerer Abstand. Das sind unkalibrierte Startschätzungen. Für das Band
 ist die Kantenhöhe zunächst 0 mm; beide Flächen sind unabhängig einstellbar.
 Die Funktion ist standardmäßig ausgeschaltet und gilt bei Aktivierung für
-Abwürfe sowie die anschließenden Störversuche.
+Abwürfe sowie die anschließenden Störversuche. In der GUI wählt man zwischen
+**Kontaktimpulse entlang der Rutsche** (neue Hauptoption) und
+**Flache Unebenheitsstöße mit Reibung** (Vergleichsoption). Gespeicherte ältere
+Konfigurationen ohne `roughness_model` verwenden jetzt die Hauptoption; der
+Manifest-Eintrag dokumentiert die Modellversion. Für Vergleiche mit früheren
+Ergebnissen ist diese Änderung zu berücksichtigen.
+
+#### Kontaktimpulse entlang der Rutsche
+
+Diese Option bildet lokale Änderungen der Kontaktreibung als kurze Impulse
+in Rutschenrichtung **X** ab. Sie erzeugt keinen zusätzlichen Normalimpuls
+von Band oder Wand weg. Die bestehende Kontaktreibung bleibt im
+MuJoCo-Solver. Zufällige zusätzliche Brems-/Mitnahmeimpulse greifen an
+belasteten Kontaktpunkten an: Wandimpulse bremsen den dortigen Schlupf;
+Bandimpulse können je nach Relativgeschwindigkeit bremsen oder beschleunigen.
+Mit dem Hebelarm zum Schwerpunkt entsteht ein Kippmoment um die Querachsen.
+
+Für das statistische Ersatzmodell wird eine zusätzliche wirksame Reibung
+`delta_mu = mu × gezogene Höhe / Kantenlänge` angenommen. Die überfahrene
+Kontaktzone liefert die wirksame Dauer `tau = Kantenlänge / |X-Schlupf|`.
+Der Impuls wird begrenzt auf
+`|J_X| = min(delta_mu × Normalkraft × tau, effektive Masse × |X-Schlupf|)`.
+Die Normalkraft stammt aus dem tatsächlich belasteten Kontakt; die
+effektive Masse berücksichtigt Bauteilmasse, Trägheit und Hebelarm. Dadurch
+kann der Impuls den Schlupf abbremsen, ihn aber nicht umkehren. Die Beziehung
+zwischen Höhe/Länge und zusätzlicher Reibung ist eine **unkalibrierte
+Modellannahme**; aus einer gemessenen Kratzertiefe folgt kein eindeutiger
+Impuls. Die wirksame Dauer wird zu einem einzelnen Impuls integriert, nicht
+als zeitlich aufgelöster Kratzer simuliert.
+
+Die Ereignisrate folgt dem longitudinalen Schlupfweg. Impulsstärke und -rate
+hängen damit von der Bewegung gegenüber der jeweiligen Kontaktfläche ab;
+es werden keine willkürlichen Kräfte am Schwerpunkt oder Drehraten gesetzt.
+Bei null Reibwert, fehlendem belasteten Kontakt oder fehlendem X-Schlupf
+gibt es in dieser Option keine Zusatzimpulse.
+
+#### Flache Unebenheitsstöße mit Reibung
 
 Die Ereignisse werden mit exponentiellen Abständen entlang des relativen
 Gleitwegs ausgelöst. Doppelter Gleitweg erzeugt im Mittel doppelt so viele
@@ -211,8 +250,11 @@ eines flachen virtuellen Stoßes. Für kleine Steigungen ist der Impuls ungefäh
 `J = effektive Masse × relative Gleitgeschwindigkeit × Höhe / Kantenlänge`.
 Die effektive Masse berücksichtigt Trägheit und Hebelarm; dadurch erzeugt
 ein außermittiger Impuls auch Rotation. Der Stoß ist unelastisch und wird auf
-den zusätzlichen Anteil der Unebenheit begrenzt. Er lenkt Gleitbewegung von
-der Fläche weg und bremst sie dabei leicht. Zur ruhenden Wand erhöht er die
+den zusätzlichen Anteil der Unebenheit begrenzt. Nach dem Normalstoß wirkt
+zusätzliche Gleitreibung auf der virtuellen Kontaktfläche, begrenzt durch
+`mu × zusätzlicher Normalimpuls` und den zum Abbremsen des Schlupfs nötigen
+Impuls. Sie berücksichtigt die getrennten Reibwerte von Wand und Band.
+Der Stoß lenkt Gleitbewegung von der Fläche weg und bremst sie. Zur ruhenden Wand erhöht er die
 kinetische Energie nicht; beim bewegten Band kann der Bandantrieb Energie
 übertragen. Stillstand und fehlender belasteter Kontakt erzeugen keine Impulse.
 Kontaktgeschwindigkeiten unter 0,1 mm/s werden als numerisches Rauschen
@@ -234,6 +276,48 @@ exakte Überfahren einer vermessenen Oberfläche werden damit nicht aufgelöst.
 Höhe/Kantenlänge darf höchstens 0,25 betragen. Eine gemessene Kratzertiefe
 bestimmt die reale Impulsstärke nicht allein: Bis zur Kalibrierung an
 Transportversuchen sollten Höhe, Kantenlänge und Abstand variiert werden.
+
+Beide Optionen speichern zusätzlich die **X-Komponente des Kraftimpulses**,
+das Drehimpuls-Vektorprodukt `Hebelarm × Impuls`, Normalkraft, Reibanteil,
+wirksame Kontaktzonendauer sowie die aktuelle Bandgeschwindigkeit in den
+Unebenheitsereignissen. Beide erzeugen keine zusätzliche kinetische Energie
+im Bezugssystem der jeweiligen Kontaktfläche.
+
+### Schwankende Bandgeschwindigkeit
+
+**Bandgeschwindigkeitsschwankung** stellt eine zeitliche ±-Schwankung in mm/s
+ein, getrennt von der Streuung des Abwurfs. **±0 mm/s** deaktiviert sie; als
+Schätzung für das reale Band bietet sich **±3 mm/s** an: bei 100 mm/s bleibt
+die Oberfläche im Bereich 97–103 mm/s. Der gesamte Bereich muss innerhalb
+0–200 mm/s bleiben. **Änderungsintervall Band** legt den zeitlichen Abstand
+zwischen zufälligen Geschwindigkeitszielen fest. **0,2 s** ist eine
+ungemessene Startannahme, kein bestätigter Messwert.
+
+Die Ziele werden gleichverteilt gezogen und mit glatten Kosinusübergängen
+verbunden. Die erste Geschwindigkeit ist der Sollwert; Änderungen erfolgen
+kontinuierlich, ohne Zeitschritt-Rauschen. MuJoCos `surfacevel` wird vor jedem
+Physikschritt angepasst. Die Kräfte entstehen über die reguläre
+Kontaktreibung am Band, einschließlich ihres Hebelarms; die PTFE-Wand ruht.
+Das Attribut ist laut
+[MuJoCo-Dokumentation](https://mujoco.readthedocs.io/en/3.14.0/XMLreference.html#body-geom-surfacevel)
+während eines Laufs veränderbar und wirkt tangential auf die Kontakte.
+Bandfluktuationen sind auch bei abgeschalteten Unebenheitsimpulsen verfügbar.
+
+Eine eigene Seed-Folge macht den Geschwindigkeitsverlauf unabhängig von
+Zeitschritt und paralleler Ausführung. Bei jedem Fallversuch wird er
+zurückgesetzt; für Störversuche startet er nach dem Wiedereinsetzen aus der
+eingependelten Pose. `belt_speed_control_points` in den Versuchsdateien
+enthält die Stützpunkte mit Laufzeit und Geschwindigkeit (einschließlich
+des nächsten Zielpunkts für den letzten Übergang); Konfiguration und
+Manifest dokumentieren die Interpolation. Die Parameter werden auch mit
+**Als Standard speichern** gesichert.
+
+Bei idealem Rollen ohne Schlupf entstehen aus dem longitudinalen Reibmodell
+allein keine Unebenheitsimpulse. Bandbeschleunigungen können trotzdem über
+den Kontakt Kräfte und Kippmomente erzeugen. Die neue Anregung garantiert
+kein Umkippen einer bestimmten Pose: reale Häufigkeiten und Kippübergänge
+müssen mit Transportversuchen verglichen werden. Ein räumlich aufgelöstes
+Rollmodell auf einer unebenen Fläche ist darin nicht enthalten.
 
 ## Ergebnisse
 
