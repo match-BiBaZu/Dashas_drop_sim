@@ -118,7 +118,7 @@ def test_gui_action_saves_both_roadmaps(tmp_path, monkeypatch):
     yaml_source, _, summary = _pair(tmp_path)
     destination = tmp_path / "ordered.yaml"
     app = QApplication.instance() or QApplication([])
-    window = DropSimulationWindow()
+    window = DropSimulationWindow(settings_path=tmp_path / "gui_defaults.json")
     monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *_args: (str(summary), ""))
     monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *_args: (str(destination), ""))
     monkeypatch.setattr(QMessageBox, "information", lambda *_args: None)

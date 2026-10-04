@@ -16,9 +16,9 @@ from dashas_drop_sim.gui import DropSimulationWindow
 from dashas_drop_sim.pose_image import render_pose_image
 
 
-def test_catalogue_dropdown_keeps_browse_path_and_1300_mm_default() -> None:
+def test_catalogue_dropdown_keeps_browse_path_and_1300_mm_default(tmp_path: Path) -> None:
     app = QApplication.instance() or QApplication([])
-    window = DropSimulationWindow()
+    window = DropSimulationWindow(settings_path=tmp_path / "gui_defaults.json")
     try:
         models = catalog_models()
         assert len(models) == 39
@@ -58,7 +58,7 @@ def test_result_row_opens_pose_image_dialog(tmp_path: Path, monkeypatch) -> None
     titles: list[str] = []
     monkeypatch.setattr(QDialog, "exec", lambda dialog: titles.append(dialog.windowTitle()) or 0)
     monkeypatch.setattr(QMessageBox, "warning", lambda *_args: (_ for _ in ()).throw(AssertionError("Unexpected GUI error")))
-    window = DropSimulationWindow()
+    window = DropSimulationWindow(settings_path=tmp_path / "gui_defaults.json")
     try:
         window._run_dir = tmp_path
         window._show_pose({
@@ -81,7 +81,7 @@ def test_result_row_opens_pose_image_dialog(tmp_path: Path, monkeypatch) -> None
 
 def test_visible_series_event_updates_last_trial(tmp_path: Path) -> None:
     app = QApplication.instance() or QApplication([])
-    window = DropSimulationWindow()
+    window = DropSimulationWindow(settings_path=tmp_path / "gui_defaults.json")
     try:
         window._mode = "watch"
         assert window._handle_event({"event": "started", "run_dir": str(tmp_path)})
@@ -102,7 +102,7 @@ def test_visible_series_event_updates_last_trial(tmp_path: Path) -> None:
 
 def test_gui_roughness_settings_reach_simulation_config(tmp_path: Path) -> None:
     app = QApplication.instance() or QApplication([])
-    window = DropSimulationWindow()
+    window = DropSimulationWindow(settings_path=tmp_path / "gui_defaults.json")
     try:
         assert not window.roughness_check.isChecked()
         assert window.roughness_spins["roughness_wall_height_mm"].value() == 0.1

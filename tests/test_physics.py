@@ -138,6 +138,26 @@ def test_seeded_drops_are_repeatable_after_full_reset(
     np.testing.assert_allclose(simulator.data.qvel, 0)
 
 
+def test_sampled_release_is_applied_and_leaves_orientation_stream_unchanged(cube):
+    simulator = _simulator(cube, length_mm=300, drop_height_mm=100)
+    fixed = simulator.drop(0, 123, cancel=lambda: True)
+    simulator.config.drop_height_spread_mm = 20
+    simulator.config.lateral_spread_mm = 10
+    sampled = simulator.drop(0, 123, cancel=lambda: True)
+    repeated = simulator.drop(0, 123, cancel=lambda: True)
+    assert sampled.to_dict() == repeated.to_dict()
+    assert sampled.initial_quat_xyzw == fixed.initial_quat_xyzw
+    assert 80 <= sampled.actual_drop_height_mm <= 120
+    assert -10 <= sampled.actual_lateral_mm <= 10
+    y, z = sampled.initial_pos_chute_mm[1:]
+    assert (y - z) / np.sqrt(2) == pytest.approx(sampled.actual_lateral_mm)
+    simulator._spawn(np.array(sampled.initial_quat_xyzw), drop_height_mm=0,
+                     lateral_mm=sampled.actual_lateral_mm)
+    baseline = simulator._local_position(simulator.data) * 1000
+    assert np.array(sampled.initial_pos_chute_mm) - baseline == pytest.approx(
+        [0, sampled.actual_drop_height_mm / np.sqrt(2), sampled.actual_drop_height_mm / np.sqrt(2)])
+
+
 def test_quiet_transport_settles_but_a_short_spinning_drop_does_not(
     cube: tuple[Path, PreparedPart],
 ) -> None:

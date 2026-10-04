@@ -25,6 +25,16 @@ Die Simulation verwendet keine Kameras, Lampen, SPS oder anderen BiBaZu-Geräte
 und kann parallel zu den anderen GUIs laufen. Bei parallelen Simulationen
 teilen sich die Prozesse lediglich CPU und Arbeitsspeicher.
 
+**Als Standard speichern** speichert die Eingaben für **Fallversuche**,
+**Erweiterte Simulationsparameter** und **Kratzer und Dellen** einschließlich
+der Streubereiche sowie die ausgewählten Datei- und Ordnerpfade. Die GUI lädt
+sie beim nächsten Start automatisch. Das Speichern der Parameter funktioniert
+auch vor der Auswahl eines Werkstücks. Änderungen werden beim Drücken dieses
+Knopfs gespeichert. Unter Windows liegt die Datei unter
+`%APPDATA%\BiBaZu\DashasDropSim\gui_defaults.json`; auf anderen Systemen unter
+`$XDG_CONFIG_HOME/dashas-drop-sim/gui_defaults.json` beziehungsweise
+`~/.config/dashas-drop-sim/gui_defaults.json`.
+
 `--all-extras` installiert die PyQt6-Oberfläche, OpenCascade für STEP-Dateien,
 die fest gepinnte Version von `bibazu_geometry_to_pose` für Roadmap-Vergleiche
 und pytest. Nach der Installation lassen sich GUI und CLI auch mit
@@ -116,7 +126,9 @@ Beispiel für `config.json` (Pfade anpassen):
   "seed": 42,
   "belt_speed_mm_s": 100.0,
   "drop_height_mm": 100.0,
+  "drop_height_spread_mm": 20.0,
   "lateral_mm": 0.0,
+  "lateral_spread_mm": 10.0,
   "density_g_cm3": 1.15,
   "mu_belt": 0.40,
   "mu_wall": 0.20,
@@ -154,6 +166,23 @@ zwischen Band und Wand. Bei 0 mm/s endet die Beobachtung nach einer festen
 Zeit statt an einem Streckenende. Die genannten Dichte- und Reibwerte sind
 konfigurierbar; 1,15 g/cm³ ist der Startwert innerhalb der angegebenen
 Materialspanne von 1,12–1,18 g/cm³.
+
+Abwurfhöhe und Querposition bieten jeweils einen **Streubereich ±** in mm.
+Pro Abwurf werden beide Werte unabhängig gleichverteilt um den Sollwert
+gezogen: **100 mm ±20 mm** Höhe ergibt 80–120 mm; **0 mm ±10 mm** Querposition
+ergibt −10 bis +10 mm. **±0 mm** ergibt einen festen Wert. Die gesamten
+Bereiche müssen innerhalb 0–200 mm Höhe beziehungsweise ±100 mm Querposition
+liegen; die GUI begrenzt die Streubreite passend zum Sollwert. Ungültige
+CLI-Konfigurationen werden abgewiesen. Die getrennten Zufallsfolgen verändern
+die orientierungsbezogenen Zufallszahlen nicht und bleiben bei gleichem Seed
+auch in parallelen Läufen reproduzierbar. Die Störkurve startet aus bereits
+eingependelten Posen; die Abwurfstreuung gilt für die Fallversuche.
+
+Die gezogenen Werte stehen als `actual_drop_height_mm` und `actual_lateral_mm`
+in `trials.csv`, `trials.jsonl` und bei einer CLI-Einzelvorschau in
+`preview.json`. `initial_pos_chute_mm` enthält die tatsächliche Startposition
+des Schwerpunkts in Rutschenachsen. Die Anzeige **Letzter Versuch** zeigt diese
+Werte ebenfalls; das Manifest dokumentiert die konfigurierte Abwurfverteilung.
 
 ### Zufällige Impulse durch Kratzer und Dellen
 

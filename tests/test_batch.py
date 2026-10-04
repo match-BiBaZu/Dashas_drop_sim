@@ -31,12 +31,14 @@ def test_configs_keep_per_workpiece_roadmaps_and_unique_outputs(tmp_path):
     first, second = _models(tmp_path, ["first", "second"])
     roadmap = tmp_path / "first_roadmap.yaml"
     roadmap.write_text("poses: []", encoding="utf-8")
-    base = RunConfig(first, trials=12, workers=3, seed=77, roadmap_path=roadmap)
+    base = RunConfig(first, trials=12, workers=3, seed=77, roadmap_path=roadmap,
+                     drop_height_spread_mm=20, lateral_spread_mm=10)
     configs = batch_configs(base, [Workpiece(first, roadmap), Workpiece(second)], tmp_path / "batch")
 
     assert [config.roadmap_path for config in configs] == [roadmap, None]
     assert len({config.output_dir for config in configs}) == 2
     assert all((config.trials, config.workers, config.seed) == (12, 3, 77) for config in configs)
+    assert all((config.drop_height_spread_mm, config.lateral_spread_mm) == (20, 10) for config in configs)
     assert base.output_dir == Path("results")
     assert find_roadmap(first) == roadmap
 
@@ -81,7 +83,7 @@ def window(tmp_path, monkeypatch):
 
     monkeypatch.setattr(gui, "QProcess", TestProcess)
     monkeypatch.setattr(QMessageBox, "warning", lambda *_args: (_ for _ in ()).throw(AssertionError("Unexpected warning")))
-    view = gui.DropSimulationWindow()
+    view = gui.DropSimulationWindow(settings_path=tmp_path / "gui_defaults.json")
     view.output_edit.setText(str(tmp_path / "results"))
     view.trials_spin.setValue(3)
     view.workers_spin.setValue(2)
