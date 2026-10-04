@@ -21,6 +21,7 @@ from .geometry import PreparedPart, prepare_part
 from .physics import ChuteSimulator, TrialOutcome
 from .pose_matching import PoseResolver
 from .parallel import SimulationPool, drop_job, kick_job
+from .roughness import MODEL_VERSION, MIN_SLIP_M_S
 
 
 EventCallback = Callable[[dict[str, Any]], None]
@@ -213,6 +214,9 @@ def _stability_rows(
             "result_quat_xyzw": outcome.final_quat_xyzw,
             "settled_trace_quat_xyzw": outcome.settled_trace_quat_xyzw,
             "travel_mm": outcome.travel_mm,
+            "roughness_seed": outcome.seed,
+            "roughness_impulse_count": len(outcome.roughness_events),
+            "roughness_events": outcome.roughness_events,
         })
         emit({"event": "stability_progress", "pose_id": key,
               "completed": len(individual), "total": planned})
@@ -288,6 +292,15 @@ def build_manifest(config: RunConfig, part: PreparedPart, resolver: PoseResolver
         "classification_tolerance_deg": resolver.match_tolerance_deg,
         "classification_ambiguity_margin_deg": resolver.ambiguity_margin_deg,
         "unknown_cluster_tolerance_deg": resolver.cluster_tolerance_deg,
+        "surface_roughness": {
+            "enabled": config.roughness_enabled,
+            "model": MODEL_VERSION,
+            "minimum_sliding_speed_mm_s": MIN_SLIP_M_S * 1000,
+            "sampling_interval_s": max(1, round(0.005 / config.timestep_s)) * config.timestep_s,
+            "restitution": 0.0,
+            "contact_sampling": "normal-load times sliding-speed weighted active MuJoCo contact points",
+            "interpretation": "Uncalibrated stochastic micro-impacts per relative sliding distance; not a fixed surface map or resolved scratch geometry.",
+        },
         "software": {
             "dashas-drop-sim": __version__, "mujoco": mujoco.__version__,
             "coacd": _version("coacd"), "trimesh": _version("trimesh"),
@@ -347,6 +360,7 @@ def run_experiment(
                       "match_distance_deg", "sim_time_s", "travel_mm", "first_settled_s",
                       "final_pos_chute_mm", "final_quat_xyzw", "final_floor_contact",
                       "final_wall_contact",
+                      "roughness_impulse_count",
                   )}})
         if visible and not cancel():
             import mujoco.viewer
@@ -391,6 +405,7 @@ def run_experiment(
         "match_distance_deg", "initial_quat_xyzw", "final_quat_xyzw", "final_pos_chute_mm",
         "sim_time_s", "travel_mm", "first_settled_s", "final_floor_contact",
         "final_wall_contact", "final_qpos",
+        "roughness_impulse_count",
     ], rows)
     frequencies = _frequency_rows(rows, len(rows), resolver.known_pose_ids) if rows else []
     example_by_key = {row["pose_key"]: row for row in rows
@@ -419,7 +434,26 @@ def run_experiment(
         "disturbance_index", "source_pose_id", "source_trial", "energy_lift_mm", "energy_j", "direction_index",
         "direction_chute", "retained", "result_status", "result_roadmap_pose_id",
         "result_match_status", "result_quat_xyzw", "settled_trace_quat_xyzw", "travel_mm",
+        "roughness_seed", "roughness_impulse_count",
     ], disturbances)
+    roughness_events = []
+    for row in rows:
+        for event in row["roughness_events"]:
+            roughness_events.append({"phase": "drop", "trial": row["trial"],
+                                     "roughness_seed": row["seed"], **event})
+    for row in disturbances:
+        for event in row["roughness_events"]:
+            roughness_events.append({"phase": "stability", "trial": row["source_trial"],
+                                     "disturbance_index": row["disturbance_index"],
+                                     "source_pose_id": row["source_pose_id"],
+                                     "roughness_seed": row["roughness_seed"], **event})
+    _write_jsonl(run_dir / "roughness_events.jsonl", roughness_events)
+    _write_csv(run_dir / "roughness_events.csv", [
+        "phase", "trial", "disturbance_index", "source_pose_id", "roughness_seed",
+        "time_s", "surface", "contact_pos_chute_mm", "relative_sliding_speed_mm_s",
+        "sampled_height_mm", "impulse_ns", "impulse_chute_ns", "effective_mass_kg",
+        "body_energy_change_j", "relative_energy_change_j",
+    ], roughness_events)
     _write_csv(run_dir / "stability.csv", [
         "pose_id", "energy_lift_mm", "energy_j", "retained_count", "direction_count",
         "retention", "complete",
@@ -435,6 +469,8 @@ def run_experiment(
         "stability_curves": curves,
         "stability_ranking": ranking,
         "disturbance_trials": len(disturbances),
+        "roughness_impulse_count": len(roughness_events),
+        "roughness_surface_counts": dict(Counter(event["surface"] for event in roughness_events)),
         "interpretation": f"Fractions are conditional on the configured release and virtual {config.length_mm / 1000:g} m chute; friction values are uncalibrated assumptions.",
     }
     _write_json(run_dir / "summary.json", summary)

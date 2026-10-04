@@ -22,12 +22,14 @@ from PyQt6.QtGui import QCloseEvent, QIcon, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QAbstractItemView,
+    QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QDialog,
     QFileDialog,
     QFormLayout,
     QGroupBox,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -200,6 +202,40 @@ class DropSimulationWindow(QMainWindow):
         note.setWordWrap(True)
         form.addRow("", note)
         layout.addWidget(parameters)
+
+        roughness_group = QGroupBox("Kratzer und Dellen")
+        roughness_layout = QVBoxLayout(roughness_group)
+        self.roughness_check = QCheckBox("Zufällige Unebenheitsimpulse aktivieren")
+        self.roughness_check.setChecked(bool(_default("roughness_enabled", False)))
+        roughness_layout.addWidget(self.roughness_check)
+        roughness_grid = QGridLayout()
+        roughness_grid.addWidget(QLabel("PTFE-Wand"), 0, 1)
+        roughness_grid.addWidget(QLabel("PE-Band"), 0, 2)
+        self.roughness_spins: dict[str, QDoubleSpinBox] = {}
+        for row, (parameter, label, low, high, default) in enumerate((
+            ("height", "Max. wirksame Kantenhöhe", 0, 2, 0.1),
+            ("ramp", "Wirksame Kantenlänge", 0.1, 100, 3.0),
+            ("spacing", "Mittlerer Abstand", 1, 10000, 10.0),
+        ), start=1):
+            roughness_grid.addWidget(QLabel(label), row, 0)
+            for column, surface in enumerate(("wall", "belt"), start=1):
+                name = f"roughness_{surface}_{parameter}_mm"
+                spin = _spin(_default(name, default), low, high, 3, 0.01 if parameter == "height" else 1)
+                spin.setSuffix(" mm")
+                spin.setEnabled(self.roughness_check.isChecked())
+                self.roughness_spins[name] = spin
+                roughness_grid.addWidget(spin, row, column)
+        self.roughness_check.toggled.connect(
+            lambda checked: [spin.setEnabled(checked) for spin in self.roughness_spins.values()])
+        roughness_layout.addLayout(roughness_grid)
+        roughness_note = QLabel(
+            "Statistisches Ersatzmodell: Höhe und Länge bestimmen die Impulsstärke, "
+            "der Abstand die Häufigkeit entlang des relativen Gleitwegs. "
+            "Wandwerte sind Startschätzungen; 0 mm Höhe schaltet eine Fläche aus."
+        )
+        roughness_note.setWordWrap(True)
+        roughness_layout.addWidget(roughness_note)
+        layout.addWidget(roughness_group)
 
         advanced = QGroupBox("Erweiterte Simulationsparameter")
         advanced_form = QFormLayout(advanced)
@@ -539,6 +575,8 @@ class DropSimulationWindow(QMainWindow):
             beta_deg=self.beta_spin.value(),
             length_mm=self.length_spin.value(),
             timestep_s=self.timestep_spin.value(),
+            roughness_enabled=self.roughness_check.isChecked(),
+            **{name: spin.value() for name, spin in self.roughness_spins.items()},
             disturbance_levels_mm=levels,
         )
         config.validate()
@@ -941,6 +979,7 @@ class DropSimulationWindow(QMainWindow):
             ("Endorientierung xyzw", data.get("final_quat_xyzw")),
             ("Bandkontakt am Endpunkt", data.get("final_floor_contact")),
             ("Wandkontakt am Endpunkt", data.get("final_wall_contact")),
+            ("Unebenheitsimpulse", data.get("roughness_impulse_count", 0)),
         )
         self.preview_table.setRowCount(0)
         for label, value in fields:

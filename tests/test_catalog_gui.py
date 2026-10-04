@@ -98,3 +98,24 @@ def test_visible_series_event_updates_last_trial(tmp_path: Path) -> None:
     finally:
         window.close()
         del app
+
+
+def test_gui_roughness_settings_reach_simulation_config(tmp_path: Path) -> None:
+    app = QApplication.instance() or QApplication([])
+    window = DropSimulationWindow()
+    try:
+        assert not window.roughness_check.isChecked()
+        assert window.roughness_spins["roughness_wall_height_mm"].value() == 0.1
+        assert window.roughness_spins["roughness_wall_spacing_mm"].value() == 10
+        assert window.roughness_spins["roughness_belt_height_mm"].value() == 0
+        window.mesh_edit.setText(str(catalog_models()["Qk1a"]))
+        window.output_edit.setText(str(tmp_path))
+        window.roughness_check.setChecked(True)
+        window.roughness_spins["roughness_belt_height_mm"].setValue(0.05)
+        config = window._make_config()
+        assert config.roughness_enabled
+        assert config.roughness_wall_ramp_mm == 3
+        assert config.roughness_belt_height_mm == 0.05
+    finally:
+        window.close()
+        del app

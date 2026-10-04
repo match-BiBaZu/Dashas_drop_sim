@@ -27,6 +27,13 @@ class RunConfig:
     length_mm: float = 1300.0
     workers: int = max(1, min(4, os.cpu_count() or 1))
     timestep_s: float = 0.001
+    roughness_enabled: bool = False
+    roughness_wall_height_mm: float = 0.1
+    roughness_wall_ramp_mm: float = 3.0
+    roughness_wall_spacing_mm: float = 10.0
+    roughness_belt_height_mm: float = 0.0
+    roughness_belt_ramp_mm: float = 3.0
+    roughness_belt_spacing_mm: float = 10.0
     disturbance_levels_mm: tuple[float, ...] = (0.0, 0.05, 0.1, 0.2, 0.4, 0.8)
 
     def validate(self) -> None:
@@ -47,6 +54,8 @@ class RunConfig:
             raise ValueError("seed must be a non-negative integer")
         if not isinstance(self.workers, int) or not 1 <= self.workers <= 32:
             raise ValueError("workers must be an integer between 1 and 32")
+        if not isinstance(self.roughness_enabled, bool):
+            raise ValueError("roughness_enabled must be true or false")
         bounds = (
             ("belt_speed_mm_s", self.belt_speed_mm_s, 0, 200),
             ("drop_height_mm", self.drop_height_mm, 0, 200),
@@ -56,10 +65,18 @@ class RunConfig:
             ("mu_wall", self.mu_wall, 0, 5),
             ("length_mm", self.length_mm, 100, 100000),
             ("timestep_s", self.timestep_s, 0.0001, 0.01),
+            *[(f"roughness_{surface}_{parameter}_mm", getattr(self, f"roughness_{surface}_{parameter}_mm"), low, high)
+              for surface in ("wall", "belt")
+              for parameter, low, high in (("height", 0, 2), ("ramp", 0.1, 100), ("spacing", 1, 10000))],
         )
         for name, value, lower, upper in bounds:
             if not math.isfinite(value) or not lower <= value <= upper:
                 raise ValueError(f"{name} must be between {lower} and {upper}")
+        for surface in ("wall", "belt"):
+            height = getattr(self, f"roughness_{surface}_height_mm")
+            ramp = getattr(self, f"roughness_{surface}_ramp_mm")
+            if self.roughness_enabled and height / ramp > 0.25:
+                raise ValueError(f"roughness_{surface}: height/ramp must be at most 0.25 for small imperfections")
         if not all(math.isfinite(x) for x in (self.alpha_deg, self.beta_deg)):
             raise ValueError("Chute angles must be finite")
         if not 0 <= self.alpha_deg <= 90 or not -30 <= self.beta_deg <= 30:

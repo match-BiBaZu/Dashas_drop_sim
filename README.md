@@ -124,6 +124,13 @@ Beispiel für `config.json` (Pfade anpassen):
   "beta_deg": 0.0,
   "length_mm": 1300.0,
   "timestep_s": 0.001,
+  "roughness_enabled": false,
+  "roughness_wall_height_mm": 0.1,
+  "roughness_wall_ramp_mm": 3.0,
+  "roughness_wall_spacing_mm": 10.0,
+  "roughness_belt_height_mm": 0.0,
+  "roughness_belt_ramp_mm": 3.0,
+  "roughness_belt_spacing_mm": 10.0,
   "disturbance_levels_mm": [0.0, 0.05, 0.1, 0.2, 0.4, 0.8]
 }
 ```
@@ -148,6 +155,57 @@ Zeit statt an einem Streckenende. Die genannten Dichte- und Reibwerte sind
 konfigurierbar; 1,15 g/cm³ ist der Startwert innerhalb der angegebenen
 Materialspanne von 1,12–1,18 g/cm³.
 
+### Zufällige Impulse durch Kratzer und Dellen
+
+Im GUI-Bereich **Kratzer und Dellen** aktiviert **Zufällige Unebenheitsimpulse**
+ein statistisches Ersatzmodell für kleine Oberflächenfehler. Es wird kein
+konkreter Kratzer und kein fester Oberflächenplan modelliert. Vorgaben für die
+PTFE-Wand sind maximal 0,1 mm wirksame Kantenhöhe, 3 mm wirksame Kantenlänge und
+10 mm mittlerer Abstand. Das sind unkalibrierte Startschätzungen. Für das Band
+ist die Kantenhöhe zunächst 0 mm; beide Flächen sind unabhängig einstellbar.
+Die Funktion ist standardmäßig ausgeschaltet und gilt bei Aktivierung für
+Abwürfe sowie die anschließenden Störversuche.
+
+Die Ereignisse werden mit exponentiellen Abständen entlang des relativen
+Gleitwegs ausgelöst. Doppelter Gleitweg erzeugt im Mittel doppelt so viele
+Ereignisse; die Zahl der Kollisionskörper vervielfacht die Ereignisrate nicht.
+Ein Impuls greift an einem zufällig ausgewählten, tatsächlich belasteten
+MuJoCo-Kontaktpunkt an. Die Auswahl berücksichtigt Normalkraft und lokalen
+Gleitweg. Es werden die diskreten Kontaktpunkte des Solvers verwendet, keine
+willkürlich interpolierten Flächen zwischen Kontakten eines konkaven Teils.
+Die Kontaktgeschwindigkeit enthält Translation und Drehung; für das Band
+wird dessen eingestellte Oberflächengeschwindigkeit abgezogen.
+
+Die wirksame Höhe wird pro Ereignis gleichverteilt zwischen 0 und der
+Maximalhöhe gezogen. Das Verhältnis Höhe/Kantenlänge bestimmt die Stärke
+eines flachen virtuellen Stoßes. Für kleine Steigungen ist der Impuls ungefähr
+`J = effektive Masse × relative Gleitgeschwindigkeit × Höhe / Kantenlänge`.
+Die effektive Masse berücksichtigt Trägheit und Hebelarm; dadurch erzeugt
+ein außermittiger Impuls auch Rotation. Der Stoß ist unelastisch und wird auf
+den zusätzlichen Anteil der Unebenheit begrenzt. Er lenkt Gleitbewegung von
+der Fläche weg und bremst sie dabei leicht. Zur ruhenden Wand erhöht er die
+kinetische Energie nicht; beim bewegten Band kann der Bandantrieb Energie
+übertragen. Stillstand und fehlender belasteter Kontakt erzeugen keine Impulse.
+Kontaktgeschwindigkeiten unter 0,1 mm/s werden als numerisches Rauschen
+ausgeklammert. Die Erfassung erfolgt ungefähr alle 5 ms, bei gröberem
+Physikzeitschritt einmal pro Schritt.
+
+Die Geschwindigkeitsänderung wird direkt aus Kontakt-Jacobian und MuJoCo-
+Massenmatrix berechnet; eine Kraft wird nicht willkürlich für einen
+Zeitschritt festgelegt. Die verwendeten APIs sind in der
+[MuJoCo-Referenz](https://mujoco.readthedocs.io/en/3.14.0/APIreference/APIfunctions.html#mj-jac)
+dokumentiert. Separate Zufallsfolgen pro Versuch und Fläche machen die
+Störungen auch bei parallelen Läufen reproduzierbar. Für die Störkurve wird
+pro Ausgangspose dieselbe Zufallsfolge verwendet, wobei der tatsächlich
+durchlaufene Gleitweg und die Kontakte von der Bewegung abhängen.
+
+Das Modell bildet kleine Fehler während des Gleitens ab. Rein rollende
+Kontakte ohne Schlupf, einzelne große Dellen, elastische Verformung und das
+exakte Überfahren einer vermessenen Oberfläche werden damit nicht aufgelöst.
+Höhe/Kantenlänge darf höchstens 0,25 betragen. Eine gemessene Kratzertiefe
+bestimmt die reale Impulsstärke nicht allein: Bis zur Kalibrierung an
+Transportversuchen sollten Höhe, Kantenlänge und Abstand variiert werden.
+
 ## Ergebnisse
 
 Jede Serie erhält einen eigenen Ordner `run_<UTC-Zeitstempel>_<Seed>` unter
@@ -161,6 +219,7 @@ Jede Serie erhält einen eigenen Ordner `run_<UTC-Zeitstempel>_<Seed>` unter
 | `trials.csv` | Jeder Abwurf mit Seed, Endorientierung, Status und fertiger Zuordnung |
 | `frequencies.csv` | Anzahl, Anteil und 95-%-Konfidenzintervall je Pose oder Status |
 | `disturbances.csv` | Einzelne Störversuche nach Pose, Richtung und Stärke |
+| `roughness_events.csv` / `.jsonl` | Jeder Unebenheitsimpuls mit Phase, Versuch, Kontaktpunkt, Relativgeschwindigkeit, Impuls in N·s und Energieänderung |
 | `stability.csv` | Pose-Erhalt je Störstärke als Störkurve |
 | `stability_summary.csv` | Normierte Fläche unter der Störkurve und Rangfolge |
 | `summary.json` | Maschinenlesbare Zusammenfassung des Laufs |

@@ -55,6 +55,7 @@ def test_short_real_cube_run_persists_unknown_pose_and_outputs(cube: Path) -> No
         "config.json", "manifest.json", "trials.jsonl", "trials.csv",
         "frequencies.csv", "disturbances.csv", "stability.csv",
         "stability_summary.csv", "summary.json",
+        "roughness_events.csv", "roughness_events.jsonl",
     ):
         assert (run_dir / filename).is_file(), filename
 
@@ -93,13 +94,16 @@ def test_same_seed_repeats_release_and_end_state(cube: Path) -> None:
     assert first.summary["pose_frequencies"] == second.summary["pose_frequencies"]
 
 
-def test_parallel_drops_match_serial_seeded_results(cube: Path) -> None:
+@pytest.mark.parametrize("roughness_enabled", [False, True])
+def test_parallel_drops_match_serial_seeded_results(cube: Path, roughness_enabled: bool) -> None:
     serial_config = _short_config(cube, output_dir=cube.parent / "serial")
     serial_config.trials = 2
     serial_config.workers = 1
+    serial_config.roughness_enabled = roughness_enabled
     parallel_config = _short_config(cube, output_dir=cube.parent / "parallel")
     parallel_config.trials = 2
     parallel_config.workers = 2
+    parallel_config.roughness_enabled = roughness_enabled
 
     serial = run_experiment(serial_config)
     parallel = run_experiment(parallel_config)
@@ -111,7 +115,12 @@ def test_parallel_drops_match_serial_seeded_results(cube: Path) -> None:
         assert left["status"] == right["status"]
         assert left["pose_key"] == right["pose_key"]
         assert left["final_qpos"] == pytest.approx(right["final_qpos"], abs=1e-10)
+        assert left["roughness_events"] == right["roughness_events"]
     assert serial.summary["pose_frequencies"] == parallel.summary["pose_frequencies"]
+    assert (serial.run_dir / "roughness_events.csv").read_bytes() == (parallel.run_dir / "roughness_events.csv").read_bytes()
+    if roughness_enabled:
+        assert serial.summary["roughness_impulse_count"] > 0
+        assert sum(serial.summary["roughness_surface_counts"].values()) == serial.summary["roughness_impulse_count"]
 
 
 def test_visible_series_reuses_viewer_and_matches_headless(cube: Path, monkeypatch) -> None:

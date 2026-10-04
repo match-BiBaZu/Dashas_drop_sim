@@ -21,6 +21,7 @@ from scipy.spatial.transform import Rotation
 
 from .config import RunConfig
 from .geometry import PreparedPart
+from .roughness import ContactRoughness
 
 
 def _numbers(values: np.ndarray | tuple[float, ...] | list[float]) -> str:
@@ -57,9 +58,10 @@ class TrialOutcome:
     final_wall_contact: bool
     final_qpos: tuple[float, ...]
     settled_trace_quat_xyzw: tuple[tuple[float, float, float, float], ...]
+    roughness_events: tuple[dict, ...] = ()
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        return {**asdict(self), "roughness_impulse_count": len(self.roughness_events)}
 
 
 class ChuteSimulator:
@@ -311,6 +313,11 @@ class ChuteSimulator:
         settle_stride = max(1, round(0.05 / (sample_stride * cfg.timestep_s)))
         viewer_stride = max(1, round(0.02 / cfg.timestep_s))
         wall_start = time.perf_counter() if viewer is not None else 0.0
+        roughness = (ContactRoughness(cfg, self.model, self.R_world_chute,
+                                     self.floor_id, self.wall_id, seed)
+                     if cfg.roughness_enabled and (cfg.roughness_wall_height_mm > 0
+                                                   or cfg.roughness_belt_height_mm > 0) else None)
+        roughness_stride = max(1, round(0.005 / cfg.timestep_s))
         status = "timeout"
         step = 0
         while data.time < max_time:
@@ -319,6 +326,8 @@ class ChuteSimulator:
                 break
             mujoco.mj_step(self.model, data)
             step += 1
+            if roughness is not None and step % roughness_stride == 0:
+                roughness.advance(data, roughness_stride * cfg.timestep_s)
             if viewer is not None and step % viewer_stride == 0 and viewer.is_running():
                 # Keep the same physics steps as a headless run, but show them
                 # at roughly real time without blocking on every single step.
@@ -381,6 +390,7 @@ class ChuteSimulator:
             final_wall_contact=wall,
             final_qpos=tuple(float(x) for x in data.qpos[:7]),
             settled_trace_quat_xyzw=tuple(settled_trace),
+            roughness_events=tuple(roughness.events) if roughness is not None else (),
         )
 
     def drop(
@@ -446,7 +456,8 @@ class ChuteSimulator:
         mujoco.mj_forward(self.model, self.data)
         return self._run_until_end(
             trial=index,
-            seed=0,
+            seed=(int(np.random.SeedSequence([self.config.seed, index + 1, 0x51AB1E])
+                      .generate_state(1, dtype=np.uint32)[0]) if self.config.roughness_enabled else 0),
             initial_quat=self._local_quat(self.data),
             cancel=cancel,
             trace_stable=True,
