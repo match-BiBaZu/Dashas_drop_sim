@@ -14,6 +14,10 @@ class RunConfig:
     mesh_path: Path
     output_dir: Path = Path("results")
     roadmap_path: Path | None = None
+    catalog_repo: Path | None = None
+    catalog_cad_dir: Path | None = None
+    catalog_push: bool = True
+    compute_stability: bool = True
     trials: int = 100
     seed: int = 42
     belt_speed_mm_s: float = 100.0
@@ -42,6 +46,9 @@ class RunConfig:
     disturbance_levels_mm: tuple[float, ...] = (0.0, 0.05, 0.1, 0.2, 0.4, 0.8)
 
     def validate(self) -> None:
+        for name in ("catalog_repo", "catalog_cad_dir"):
+            value = getattr(self, name)
+            setattr(self, name, None if value in (None, "") else Path(value).expanduser().resolve())
         self.mesh_path = Path(self.mesh_path).expanduser().resolve()
         self.output_dir = Path(self.output_dir).expanduser().resolve()
         self.roadmap_path = (
@@ -57,6 +64,8 @@ class RunConfig:
 
     def validate_parameters(self) -> None:
         """Validate simulation settings even before a workpiece is selected."""
+        if not isinstance(self.compute_stability, bool) or not isinstance(self.catalog_push, bool):
+            raise ValueError("compute_stability and catalog_push must be true or false")
         if not isinstance(self.trials, int) or self.trials < 1:
             raise ValueError("trials must be a positive integer")
         if not isinstance(self.seed, int) or self.seed < 0:
@@ -115,6 +124,9 @@ class RunConfig:
         result["mesh_path"] = str(Path(self.mesh_path).expanduser().resolve())
         result["output_dir"] = str(Path(self.output_dir).expanduser().resolve())
         result["roadmap_path"] = None if self.roadmap_path is None else str(Path(self.roadmap_path).expanduser().resolve())
+        for name in ("catalog_repo", "catalog_cad_dir"):
+            value = getattr(self, name)
+            result[name] = None if value is None else str(Path(value).expanduser().resolve())
         return result
 
     @classmethod
@@ -124,7 +136,7 @@ class RunConfig:
         if extras:
             raise ValueError(f"Unknown configuration keys: {sorted(extras)}")
         payload = dict(raw)
-        for key in ("mesh_path", "output_dir", "roadmap_path"):
+        for key in ("mesh_path", "output_dir", "roadmap_path", "catalog_repo", "catalog_cad_dir"):
             if payload.get(key) is not None:
                 payload[key] = Path(payload[key])
         if "disturbance_levels_mm" in payload:

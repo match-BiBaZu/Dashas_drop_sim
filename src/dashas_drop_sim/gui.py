@@ -144,6 +144,9 @@ class DropSimulationWindow(QMainWindow):
         self.batch_add_files_button.clicked.connect(self._choose_batch_meshes)
         self.batch_catalog_button = QPushButton("Aus Katalog laden …")
         self.batch_catalog_button.clicked.connect(self._choose_batch_catalog)
+        self.batch_all_button = QPushButton("Alle 39 hinzufügen")
+        self.batch_all_button.clicked.connect(lambda: self._add_workpieces([
+            Workpiece(path, find_roadmap(path)) for path in catalog_models().values()]))
         self.batch_add_current_button = QPushButton("Aktuelles Werkstück hinzufügen")
         self.batch_add_current_button.clicked.connect(self._add_current_workpiece)
         self.batch_remove_button = QPushButton("Auswahl entfernen")
@@ -151,7 +154,8 @@ class DropSimulationWindow(QMainWindow):
         self.batch_clear_button = QPushButton("Liste leeren")
         self.batch_clear_button.clicked.connect(lambda: self.batch_table.setRowCount(0))
         self._batch_edit_buttons = [self.batch_add_files_button, self.batch_catalog_button,
-                                    self.batch_add_current_button, self.batch_remove_button, self.batch_clear_button]
+                                    self.batch_all_button, self.batch_add_current_button,
+                                    self.batch_remove_button, self.batch_clear_button]
         for button in self._batch_edit_buttons:
             batch_actions.addWidget(button)
         batch_layout.addLayout(batch_actions)
@@ -298,7 +302,34 @@ class DropSimulationWindow(QMainWindow):
         self.levels_edit = QLineEdit(", ".join(str(v) for v in levels))
         self.levels_edit.setToolTip("Kommagetrennte Stufen für die reproduzierbaren Störversuche")
         advanced_form.addRow("Störstufen (mm)", self.levels_edit)
+        self.compute_stability_check = QCheckBox("Zusätzliche Drehimpuls-Störkurven berechnen")
+        self.compute_stability_check.setChecked(bool(_default("compute_stability", True)))
+        advanced_form.addRow(self.compute_stability_check)
         layout.addWidget(advanced)
+
+        self.catalog_export_group = QGroupBox("Posenkatalog automatisch aktualisieren")
+        export_form = QFormLayout(self.catalog_export_group)
+        self.catalog_export_check = QCheckBox("Vollständige Fallserien automatisch exportieren und committen")
+        export_form.addRow(self.catalog_export_check)
+        workspace = Path(__file__).resolve().parents[3]
+        self.catalog_repo_edit = QLineEdit(str(workspace / "BiBaZu_StableComponentenPoses"))
+        self.catalog_cad_edit = QLineEdit(str(workspace / "bibazu_geometry_to_pose" / "Werkstücke_STL_grob"))
+        export_form.addRow("Ergebnis-Repo", self._path_row(self.catalog_repo_edit,
+            lambda: self._choose_catalog_directory(self.catalog_repo_edit)))
+        export_form.addRow("Originale STL-/STEP-Paare", self._path_row(self.catalog_cad_edit,
+            lambda: self._choose_catalog_directory(self.catalog_cad_edit)))
+        self.catalog_push_check = QCheckBox("Nach jedem Werkstück automatisch nach GitHub pushen")
+        self.catalog_push_check.setChecked(True)
+        export_form.addRow(self.catalog_push_check)
+        self.catalog_retry_button = QPushButton("Abgeschlossenen Lauf erneut exportieren …")
+        self.catalog_retry_button.clicked.connect(self._retry_catalog_export)
+        export_form.addRow(self.catalog_retry_button)
+        export_note = QLabel("Bei gleicher Konfiguration werden bereits vollständig berechnete Werkstücke "
+                            "wiederverwendet. Sichtbare Falltests werden stets neu simuliert. "
+                            "Ein abgebrochener Lauf ersetzt keine Katalogdaten.")
+        export_note.setWordWrap(True)
+        export_form.addRow(export_note)
+        layout.addWidget(self.catalog_export_group)
 
         controls = QHBoxLayout()
         self.start_button = QPushButton("Simulation starten")
@@ -522,6 +553,7 @@ class DropSimulationWindow(QMainWindow):
         self.preview_button.setEnabled(not busy)
         self.reindex_button.setEnabled(not busy)
         self.save_defaults_button.setEnabled(not busy)
+        self.catalog_export_group.setEnabled(not busy)
         self.batch_start_button.setEnabled(not busy and self.batch_table.rowCount() > 0)
         self.cancel_button.setEnabled(busy)
         self.batch_table.setEnabled(not busy)
@@ -626,6 +658,8 @@ class DropSimulationWindow(QMainWindow):
         if not levels:
             raise ValueError("Mindestens eine Störstufe ist erforderlich.")
         return {**{name: widget.value() for name, widget in self._parameter_widgets().items()},
+                "compute_stability": self.compute_stability_check.isChecked(),
+                "catalog_push": self.catalog_push_check.isChecked(),
                 "roughness_enabled": self.roughness_check.isChecked(),
                 "roughness_model": self.roughness_model_combo.currentData(), "disturbance_levels_mm": levels}
 
@@ -634,7 +668,10 @@ class DropSimulationWindow(QMainWindow):
             parameters = self._parameter_values()
             inputs = {name: str(Path(edit.text().strip()).expanduser().resolve()) if edit.text().strip() else ""
                       for name, edit in (("mesh_path", self.mesh_edit), ("roadmap_path", self.roadmap_edit),
-                                         ("output_dir", self.output_edit))}
+                                         ("output_dir", self.output_edit), ("catalog_repo", self.catalog_repo_edit),
+                                         ("catalog_cad_dir", self.catalog_cad_edit))}
+            if not self.catalog_export_check.isChecked():
+                inputs["catalog_repo"] = ""
             save_defaults(self._settings_path, parameters, inputs)
         except (OSError, TypeError, ValueError) as exc:
             QMessageBox.warning(self, "Starteinstellungen", str(exc))
@@ -656,14 +693,18 @@ class DropSimulationWindow(QMainWindow):
                 widget.setValue(parameters[name])
         if "roughness_enabled" in parameters:
             self.roughness_check.setChecked(parameters["roughness_enabled"])
+        self.compute_stability_check.setChecked(parameters.get("compute_stability", True))
+        self.catalog_push_check.setChecked(parameters.get("catalog_push", True))
         if "roughness_model" in parameters:
             self.roughness_model_combo.setCurrentIndex(self.roughness_model_combo.findData(parameters["roughness_model"]))
         if "disturbance_levels_mm" in parameters:
             self.levels_edit.setText(", ".join(str(value) for value in parameters["disturbance_levels_mm"]))
         for name, edit in (("mesh_path", self.mesh_edit), ("roadmap_path", self.roadmap_edit),
-                           ("output_dir", self.output_edit)):
+                           ("output_dir", self.output_edit), ("catalog_repo", self.catalog_repo_edit),
+                           ("catalog_cad_dir", self.catalog_cad_edit)):
             if name in data["inputs"]:
                 edit.setText(data["inputs"][name])
+        self.catalog_export_check.setChecked(bool(data["inputs"].get("catalog_repo")))
         previous = self.catalog_combo.blockSignals(True)
         self.catalog_combo.setCurrentIndex(max(0, self.catalog_combo.findData(self.mesh_edit.text())))
         self.catalog_combo.blockSignals(previous)
@@ -683,10 +724,50 @@ class DropSimulationWindow(QMainWindow):
                 if self.roadmap_edit.text().strip() else None
             ),
             output_dir=Path(output).expanduser().resolve(),
+            catalog_repo=Path(self.catalog_repo_edit.text()).expanduser().resolve()
+                if self.catalog_export_check.isChecked() and self.catalog_repo_edit.text().strip() else None,
+            catalog_cad_dir=Path(self.catalog_cad_edit.text()).expanduser().resolve()
+                if self.catalog_cad_edit.text().strip() else None,
             **self._parameter_values(),
         )
         config.validate()
+        if self.catalog_export_check.isChecked() and config.catalog_repo is None:
+            raise ValueError("Bitte ein Ergebnis-Repo wählen.")
         return config
+
+    def _choose_catalog_directory(self, field: QLineEdit) -> None:
+        selected = QFileDialog.getExistingDirectory(self, "Katalogordner wählen", field.text())
+        if selected:
+            field.setText(selected)
+
+    def _retry_catalog_export(self) -> None:
+        selected = QFileDialog.getExistingDirectory(self, "Vollständigen Lauf wählen",
+                                                    str(self._run_dir or self.output_edit.text()))
+        if not selected:
+            return
+        self._mode = "export"
+        self._run_dir = Path(selected)
+        self._output_dir = self._run_dir
+        self._run_started_at = 0
+        self._cancel_requested = False
+        self._stdout_buffer = self._stderr_buffer = ""
+        args = ["-m", "dashas_drop_sim", "export", "--run-dir", selected,
+                "--catalog-repo", self.catalog_repo_edit.text()]
+        if self.catalog_cad_edit.text():
+            args.extend(["--cad-dir", self.catalog_cad_edit.text()])
+        if not self.catalog_push_check.isChecked():
+            args.append("--no-push")
+        process = QProcess(self)
+        process.setProgram(sys.executable)
+        process.setArguments(args)
+        process.readyReadStandardOutput.connect(self._read_stdout)
+        process.readyReadStandardError.connect(self._read_stderr)
+        process.finished.connect(self._finished)
+        process.errorOccurred.connect(self._process_error)
+        self._process = process
+        self._set_running_controls(True)
+        self.status_label.setText("Katalogexport läuft …")
+        process.start()
 
     def _start(self, mode: str) -> None:
         if self._process is not None or self._batch_active:
@@ -766,7 +847,16 @@ class DropSimulationWindow(QMainWindow):
         record = self._batch_records[self._batch_index]
         record.update(status=outcome, exit_code=code, run_dir=str(self._run_dir) if self._run_dir else None)
         labels = {"completed": "Abgeschlossen", "failed": "Fehlgeschlagen", "cancelled": "Abgebrochen"}
-        self._set_batch_status(self._batch_index, labels[outcome])
+        label = labels[outcome]
+        if self._run_dir is not None and (self._run_dir / "catalog_status.json").is_file():
+            receipt = json.loads((self._run_dir / "catalog_status.json").read_text(encoding="utf-8"))
+            record["catalog_status"] = receipt["status"]
+            record["push_status"] = receipt.get("publication", {}).get("push_status")
+            if receipt["status"] == "export_pending":
+                label += " – Export ausstehend"
+            elif record["push_status"] == "pending":
+                label += " – Push ausstehend"
+        self._set_batch_status(self._batch_index, label)
         if self._run_dir is not None and any((self._run_dir / name).is_file() for name in ("summary.json", "frequencies.csv")):
             button = QPushButton("Ergebnisse")
             config = self._batch_configs[self._batch_index]
@@ -933,6 +1023,20 @@ class DropSimulationWindow(QMainWindow):
 
     def _handle_event(self, event: dict[str, Any]) -> bool:
         kind = str(event.get("event", event.get("type", ""))).lower()
+        if kind == "resumed":
+            self._run_dir = Path(event["run_dir"])
+            self._log_line(f"Vollständiger Lauf wiederverwendet: {self._run_dir}")
+            self.progress.setValue(self.progress.maximum())
+            return True
+        if kind == "catalog_export":
+            self._log_line(f"Katalog {event['workpiece']}: Commit {event['commit'][:10]}, "
+                           f"GitHub: {event['push_status']}")
+            if event.get("push_error"):
+                self._log_line("Push ausstehend: " + event["push_error"])
+            return True
+        if kind == "catalog_export_error":
+            self._log_line("Katalogexport ausstehend: " + event["message"])
+            return True
         if kind == "started":
             if event.get("run_dir"):
                 self._run_dir = Path(str(event["run_dir"]))

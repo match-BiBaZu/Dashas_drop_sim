@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 import hashlib
 from importlib import metadata
 import json
+import subprocess
 from pathlib import Path
 from typing import Any, Callable
 
@@ -278,7 +279,15 @@ def _ranking(curves: list[dict[str, Any]], levels: tuple[float, ...]) -> list[di
 
 def build_manifest(config: RunConfig, part: PreparedPart, resolver: PoseResolver) -> dict[str, Any]:
     """Shared provenance for a batch or a visible single trial."""
+    try:
+        software_commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=Path(__file__).resolve().parents[2],
+            text=True, stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).strip()
+    except (OSError, subprocess.CalledProcessError):
+        software_commit = None
     return {
+        "software_commit": software_commit,
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "mesh_source_sha256": part.source_sha256,
         "mesh_triangles_sha256": part.mesh_sha256,
@@ -289,6 +298,7 @@ def build_manifest(config: RunConfig, part: PreparedPart, resolver: PoseResolver
         "catalog_mesh_path": str(part.catalog_mesh_path),
         "collision_quality": part.collision_quality,
         "catalog_symmetry": resolver.symmetry_symbol,
+        "recognition": resolver.recognition_descriptor(),
         "catalogue_cache_hit": resolver.cache_hit,
         "symmetry_available": resolver.symmetry_available,
         "classification_tolerance_deg": resolver.match_tolerance_deg,
@@ -454,7 +464,8 @@ def run_experiment(
     for frequency in frequencies:
         emit({"event": "result", **frequency})
 
-    disturbances, curves = _stability_rows(rows, config, simulator, resolver, cancel, emit)
+    disturbances, curves = (_stability_rows(rows, config, simulator, resolver, cancel, emit)
+                            if config.compute_stability else ([], []))
     ranking = _ranking(curves, config.disturbance_levels_mm)
     _write_csv(run_dir / "disturbances.csv", [
         "disturbance_index", "source_pose_id", "source_trial", "energy_lift_mm", "energy_j", "direction_index",
@@ -500,6 +511,7 @@ def run_experiment(
         "stability_curves": curves,
         "stability_ranking": ranking,
         "disturbance_trials": len(disturbances),
+        "compute_stability": config.compute_stability,
         "roughness_impulse_count": len(roughness_events),
         "roughness_surface_counts": dict(Counter(event["surface"] for event in roughness_events)),
         "interpretation": f"Fractions are conditional on the configured release and virtual {config.length_mm / 1000:g} m chute; friction values are uncalibrated assumptions.",

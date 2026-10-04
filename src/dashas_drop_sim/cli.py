@@ -27,7 +27,7 @@ def _config(path: Path) -> RunConfig:
     raw = json.loads(path.read_text(encoding="utf-8-sig"))
     if not isinstance(raw, dict):
         raise ValueError("Configuration JSON must contain an object.")
-    for key in ("mesh_path", "roadmap_path", "output_dir"):
+    for key in ("mesh_path", "roadmap_path", "output_dir", "catalog_repo", "catalog_cad_dir"):
         if raw.get(key) is not None and not Path(raw[key]).expanduser().is_absolute():
             raw[key] = str((path.parent / Path(raw[key]).expanduser()).resolve())
     return RunConfig.from_dict(raw)
@@ -80,6 +80,13 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="BiBaZu MuJoCo fall test simulation")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("gui", help="Start the PyQt6 user interface")
+    catalogue_parser = commands.add_parser("catalog-batch", help="Run/resume all 39 workpieces and publish the catalogue")
+    catalogue_parser.add_argument("--config", type=Path, required=True)
+    export_parser = commands.add_parser("export", help="Export a completed run without resimulating")
+    export_parser.add_argument("--run-dir", type=Path, required=True)
+    export_parser.add_argument("--catalog-repo", type=Path, required=True)
+    export_parser.add_argument("--cad-dir", type=Path)
+    export_parser.add_argument("--no-push", action="store_true")
     run_parser = commands.add_parser("run", help="Run a headless batch and save CSV/JSON")
     run_parser.add_argument("--config", type=Path, required=True)
     watch_parser = commands.add_parser("watch", help="Watch all drop trials in one MuJoCo window")
@@ -93,11 +100,23 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "gui":
             from .gui import main as gui_main
             return gui_main()
+        if args.command == "export":
+            from .catalog_export import export_run
+            outcome = export_run(args.run_dir, args.catalog_repo, cad_dir=args.cad_dir, push=not args.no_push)
+            _emit({"event": "catalog_export", **outcome})
+            return 0 if outcome["push_status"] != "pending" else 3
         config = _config(args.config)
         stopped = _cancel_event()
+        from .catalog_batch import run_catalog_batch, run_with_catalog
+        if args.command == "catalog-batch":
+            outcome = run_catalog_batch(config, emit=_emit, cancel=stopped.is_set)
+            _emit({"event": "catalog_batch_done", **outcome})
+            return 130 if outcome["cancelled"] else (0 if all(
+                row["status"] == "complete" and row.get("publication", {}).get("push_status") != "pending"
+                for row in outcome["workpieces"]) else 3)
         if args.command == "preview":
             return _preview(config, args.trial, visible=not args.headless, stopped=stopped)
-        result = run_experiment(config, emit=_emit, cancel=stopped.is_set,
+        result = run_with_catalog(config, emit=_emit, cancel=stopped.is_set,
                                 visible=args.command == "watch")
         return 130 if result.summary["cancelled"] else 0
     except (OSError, TypeError, ValueError, RuntimeError, ImportError) as exc:

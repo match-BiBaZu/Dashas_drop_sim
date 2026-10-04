@@ -42,6 +42,10 @@ def test_save_parameters_without_model_and_reload_on_gui_restart(tmp_path, monke
         window.roughness_spins["roughness_wall_spacing_mm"].setValue(12)
         window.roughness_spins["roughness_belt_height_mm"].setValue(0.02)
         window.output_edit.setText(str(tmp_path / "results"))
+        window.compute_stability_check.setChecked(False)
+        window.catalog_export_check.setChecked(True)
+        window.catalog_repo_edit.setText(str(tmp_path / "catalogue"))
+        window.catalog_cad_edit.setText(str(tmp_path / "cad"))
         expected = window._parameter_values()
         window.save_defaults_button.click()
         assert path.is_file()
@@ -54,6 +58,9 @@ def test_save_parameters_without_model_and_reload_on_gui_restart(tmp_path, monke
         assert reopened._parameter_values() == expected
         assert reopened.output_edit.text() == str(tmp_path / "results")
         assert reopened.mesh_edit.text() == ""
+        assert reopened.catalog_export_check.isChecked()
+        assert reopened.catalog_repo_edit.text() == str(tmp_path / "catalogue")
+        assert reopened.catalog_cad_edit.text() == str(tmp_path / "cad")
     finally:
         reopened.close()
         del app

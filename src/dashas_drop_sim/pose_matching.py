@@ -297,6 +297,18 @@ class PoseResolver:
             return None
         return tuple(float(value) for value in self._catalogue_quats[indices[0]])
 
+    def recognition_descriptor(self) -> dict:
+        """Portable symmetry and orientation conventions for exported observations."""
+        return {
+            "quaternion_order": "xyzw", "rotation": "part_to_chute",
+            "symmetry_available": self.symmetry_available, "symmetry_symbol": self.symmetry_symbol,
+            "symmetry_quaternions_xyzw": self._symmetry_quats.tolist(),
+            "continuous_axis_part": None if self._continuous_axis is None else self._continuous_axis.tolist(),
+            "tolerance_deg": self.cluster_tolerance_deg,
+            "ambiguity_margin_deg": self.ambiguity_margin_deg,
+            "symmetry_composition": "q_part_to_chute * q_symmetry_part",
+        }
+
     def resolve(self, quat_xyzw: Sequence[float] | np.ndarray) -> PoseMatch:
         """Return one unambiguous roadmap node, or retain the unknown result."""
 
