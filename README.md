@@ -321,6 +321,10 @@ Rollmodell auf einer unebenen Fläche ist darin nicht enthalten.
 
 ## Automatischer Posenkatalog und 39er-Lauf
 
+Der [Prozessvergleich auf dem aktuellen Rechner](docs/worker_benchmark.md) ergab
+für Dk2a mit diesen Parametern keinen Vorteil durch mehr als acht Prozesse.
+Das dort beschriebene Benchmark-Werkzeug prüft Laufzeit und Ergebnisgleichheit.
+
 Im GUI-Bereich **Posenkatalog automatisch aktualisieren** den lokalen Klon von
 `BiBaZu_StableComponentenPoses` und den Ordner mit den ursprünglichen STL-/STEP-Paaren
 wählen. Export aktivieren; **Nach jedem Werkstück automatisch nach GitHub pushen**
