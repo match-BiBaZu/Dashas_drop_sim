@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from contextlib import contextmanager
 import csv
 import hashlib
 import json
@@ -10,6 +11,8 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
+import time
 from uuid import uuid4
 
 import numpy as np
@@ -150,7 +153,45 @@ def _verify_files(folder: Path) -> None:
         raise ValueError(f"Katalogdateien wurden nach dem Export verändert: {folder}")
 
 
+@contextmanager
+def _repository_lock(repo: Path):
+    """An OS lock serializes GUI/CLI exporters and is released after crashes."""
+    with (repo / ".git" / "catalog-export.lock").open("a+b") as handle:
+        handle.seek(0, 2)
+        if handle.tell() == 0:
+            handle.write(b"0")
+            handle.flush()
+        deadline = time.monotonic() + 30
+        while True:
+            try:
+                handle.seek(0)
+                if sys.platform == "win32":
+                    import msvcrt
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("Ein anderer Katalogexport läuft; diesen Export später wiederholen.")
+                time.sleep(0.1)
+        try:
+            yield
+        finally:
+            handle.seek(0)
+            if sys.platform == "win32":
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(handle, fcntl.LOCK_UN)
+
+
 def export_run(run_dir: Path, repo: Path, *, cad_dir: Path | None = None, push: bool = True) -> dict:
+    with _repository_lock(Path(repo).resolve()):
+        return _export_run(run_dir, repo, cad_dir=cad_dir, push=push)
+
+
+def _export_run(run_dir: Path, repo: Path, *, cad_dir: Path | None = None, push: bool = True) -> dict:
     run_dir, repo = Path(run_dir).resolve(), Path(repo).resolve()
     if Path(git(repo, "rev-parse", "--show-toplevel")).resolve() != repo:
         raise ValueError("Bitte den Stammordner des Ergebnis-Repos wählen.")

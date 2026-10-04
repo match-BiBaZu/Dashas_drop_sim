@@ -319,6 +319,75 @@ kein Umkippen einer bestimmten Pose: reale Häufigkeiten und Kippübergänge
 müssen mit Transportversuchen verglichen werden. Ein räumlich aufgelöstes
 Rollmodell auf einer unebenen Fläche ist darin nicht enthalten.
 
+## Automatischer Posenkatalog und 39er-Lauf
+
+Im GUI-Bereich **Posenkatalog automatisch aktualisieren** den lokalen Klon von
+`BiBaZu_StableComponentenPoses` und den Ordner mit den ursprünglichen STL-/STEP-Paaren
+wählen. Export aktivieren; **Nach jedem Werkstück automatisch nach GitHub pushen**
+veröffentlicht die Ergebnisse nach jedem vollständigen Lauf. **Alle 39 hinzufügen**
+füllt die Werkstückliste, **Werkstück-Batch starten** arbeitet sie mit den aktuellen
+Parametern ab. Für reine Falltests **Zusätzliche Drehimpuls-Störkurven berechnen**
+ausschalten. Alle Export- und Physikeinstellungen lassen sich als Standard speichern.
+
+Die abgestimmte Konfiguration liegt in `configs/catalog39.json`: 1.000 Versuche je
+Werkstück, 8 Prozesse, 500 mm, 100 ±3 mm/s, 100 mm Abwurfhöhe, 0 mm Querposition,
+keine Abwurfstreuung, longitudinale Wandimpulse, keine zusätzlichen Störkurven.
+CLI-Start und Wiederaufnahme verwenden denselben Simulations- und Exportpfad:
+
+```powershell
+uv run --all-extras dashas-drop-sim catalog-batch --config configs/catalog39.json
+```
+
+Die GUI-Einstellungen für ein Einzelwerkstück werden genauso verwendet. Bei
+aktiviertem Export werden vollständige frühere Läufe mit identischer Geometrie,
+Physikkonfiguration und Simulationscode wiederverwendet. Sichtbare Serien werden
+immer neu simuliert. Ein laufender Versuch speichert seine eingefrorene Konfiguration.
+`results/catalog39/catalog_batch.json` protokolliert den CLI-Gesamtlauf; die lokale
+Wiederaufnahmeinformation liegt zusätzlich im `.git/catalog-progress` des Ziel-Repos.
+Nach Abbruch wird nur das noch unvollständige Werkstück erneut berechnet.
+
+Je Werkstück entstehen originale STL und STEP, eine bebilderte README, `poses.json`,
+die inhaltsgleiche `poses.yaml`, `frequencies.csv`, `trials.csv`, Konfiguration und
+Manifest. Nur beobachtete, eingependelte Endlagen stehen in der Posenliste; die
+Hauptprozentwerte und Wilson-Intervalle beziehen sich auf **alle** abgeschlossenen
+Abwürfe. Nicht eingependelte Fälle bleiben als Ergebnisstatus sichtbar. Zusätzlich
+steht der Prozentanteil unter den eingependelten Versuchen dabei. Ausführliche
+Impulsereignisse und Geschwindigkeitsstützpunkte bleiben im lokalen Rohdatenlauf;
+Konfiguration, Seeds, Modellversionen und Software-Commit ermöglichen die Zuordnung.
+
+Die exportierten Pose-IDs bleiben unabhängig von der Häufigkeit reserviert.
+`pose_registry.json` hält auch frühere, aktuell nicht beobachtete IDs bereit.
+Orientierungen werden unter der erkannten Bauteilsymmetrie gruppiert; die Roadmap
+dient als optionale Referenz. Die Erkennung benötigt keine installierte Roadmap:
+
+```python
+from dashas_drop_sim.catalog_export import recognize_pose
+result = recognize_pose(quaternion_xyzw, catalogue_json)
+```
+
+`recognition` enthält die diskreten Symmetriequaternionen beziehungsweise die
+gerichtete kontinuierliche Symmetrieachse, Winkeltoleranz und Mehrdeutigkeitsabstand.
+Quaternionen sind **xyzw**, Bauteil → Rutsche. `transform_chute_from_source_mm`
+transformiert Punkte der ursprünglichen CAD-/STL-Koordinaten nach Rutschenkoordinaten;
+die Translation berücksichtigt den Originalschwerpunkt. Rutschenachsen: X entlang
+des Bandes, Y von der Wand weg, Z vom Band weg. Die Bilder zeigen tatsächlich
+beobachtete Repräsentanten; die Längsposition wird für die Nahansicht ausgeblendet.
+
+Erst der vollständig geprüfte Export ersetzt den bisherigen Werkstückordner; pro
+Werkstück wird committed. Netzwerkfehler lassen einen lokalen Commit mit Status
+`pending` zurück. **Abgeschlossenen Lauf erneut exportieren …** oder der CLI-Befehl
+unten wiederholen Export/Push ohne Simulation. Ungesicherte manuelle Änderungen
+werden nicht überschrieben. Andere Exporte werden über eine Prozesssperre serialisiert.
+
+```powershell
+uv run --all-extras dashas-drop-sim export --run-dir results/DEIN_LAUF --catalog-repo ../BiBaZu_StableComponentenPoses
+```
+
+`--no-push` erstellt nur den lokalen Commit. `--cad-dir` wählt einen anderen
+Original-CAD-Ordner. Der Export verweigert unvollständige Läufe und eine seit dem
+Versuch geänderte Geometrie. Die Katalogübersicht nennt je Werkstück Versuchszahl,
+Strecke und beobachtete Posen; alle Aussagen gelten für die jeweilige Simulation.
+
 ## Ergebnisse
 
 Jede Serie erhält einen eigenen Ordner `run_<UTC-Zeitstempel>_<Seed>` unter
