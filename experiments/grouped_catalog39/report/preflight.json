@@ -1,0 +1,19 @@
+{
+  "simulator_tests_passed": 107,
+  "roadmap_tests_passed": 33,
+  "worker_comparison": {
+    "seed": 42,
+    "trials_per_run": 8,
+    "workers": [1, 8],
+    "identical_trial_records": true,
+    "trials_sha256": "1396856e4e63f92bc216defa07e3a3eaed6206f79c49bdaccf8d1042520a13ee",
+    "blas_thread_limit_preserves_records": true
+  },
+  "merge_repair": {
+    "commit": "3523350d8e12a1b7e57467044b9cfe25ff49b0bd",
+    "validated_component_sets": 36,
+    "roadmap_main_publication_verified": true
+  },
+  "production_complete": false,
+  "note": "Preflight checks only. Final production validation is written by the supervisor after all 39 workpieces complete."
+}

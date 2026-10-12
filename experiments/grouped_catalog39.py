@@ -304,9 +304,11 @@ def main():
         # Preserve exact exported bytes, including pose sheets and new companions.
         attributes = repo / ".gitattributes"
         text = attributes.read_text() if attributes.is_file() else ""
+        patterns = "\n".join(f"{part}/** -text -whitespace" for part in provenance["workpieces"])
+        text = text.replace("[DKQR][fkl][1-4][ai]/** -text -whitespace", patterns)
         if "# Grouped exports" not in text:
-            text += "\n# Grouped exports: checksum inventories cover exact bytes.\n[DKQR][fkl][1-4][ai]/** -text -whitespace\ngrouped_study.json -text\n"
-            attributes.write_text(text, encoding="utf-8")
+            text += "\n# Grouped exports: checksum inventories cover exact bytes.\n" + patterns + "\ngrouped_study.json -text\n"
+        attributes.write_text(text, encoding="utf-8")
     refresh_reports(study, provenance, args.pose_repo, args.roadmap_repo)
     if args.prepare_only:
         return

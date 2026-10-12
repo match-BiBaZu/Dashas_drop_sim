@@ -74,6 +74,12 @@ def finalize():
         git(repo, "push", "origin", "HEAD:refs/heads/grouped")
         if git(repo, "rev-parse", "HEAD") != git(repo, "ls-remote", "origin", "refs/heads/grouped").split()[0]:
             raise ValueError("Remote output branch verification failed.")
+        import hashlib
+        for part in study["workpieces"]:
+            for name, expected in read(repo / part / "files.sha256.json").items():
+                actual = git(repo, "show", f"HEAD:{part}/{name}", binary=True)
+                if hashlib.sha256(actual).hexdigest() != expected:
+                    raise ValueError(f"Git artifact checksum mismatch: {part}/{name}")
     validation = {"completed_workpieces": 39, "completed_drop_trials": 390000,
                   "fresh_additional_drops": 360000, "reused_drop_trials": 30000,
                   "disturbance_trials": sum(r["audit"]["disturbance_tests"] for r in study["workpieces"].values()),
