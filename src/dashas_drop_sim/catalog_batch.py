@@ -18,7 +18,8 @@ from .runner import RunResult, _write_json, run_experiment
 def engine_fingerprint() -> str:
     root = Path(__file__).parent
     hashes = {name: sha256(root / (name + ".py")) for name in (
-        "config", "physics", "roughness", "belt", "release", "geometry", "pose_matching", "runner", "parallel")}
+        "config", "physics", "roughness", "belt", "release", "geometry", "pose_matching", "runner", "parallel",
+        "grouping", "grouped_run", "observed")}
     hashes["versions"] = {name: metadata.version(name) for name in (
         "mujoco", "numpy", "scipy", "trimesh", "coacd", "bibazu-chute-pose")}
     return hashlib.sha256(json.dumps(hashes, sort_keys=True).encode()).hexdigest()
@@ -30,6 +31,7 @@ def signature(config: RunConfig) -> str:
         settings.pop(key)
     settings["mesh_path"] = sha256(config.mesh_path)
     settings["roadmap_path"] = sha256(config.roadmap_path) if config.roadmap_path else None
+    settings["observed_catalog_path"] = sha256(config.observed_catalog_path) if config.observed_catalog_path else None
     return hashlib.sha256(json.dumps({"settings": settings, "engine": engine_fingerprint()}, sort_keys=True).encode()).hexdigest()
 
 

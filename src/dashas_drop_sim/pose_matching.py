@@ -31,7 +31,7 @@ MatchStatus = Literal["matched", "unmatched", "ambiguous"]
 @dataclass(frozen=True, slots=True)
 class PoseMatch:
     status: MatchStatus
-    pose_id: int | None
+    pose_id: int | str | None
     distance_deg: float | None
 
 
@@ -167,6 +167,10 @@ class PoseResolver:
         self.cache_hit = False
         data = None if self.roadmap_path is None else _roadmap(self.roadmap_path)
         if data is not None:
+            if (data.get("catalogue_id_namespace") == "input_pose_list_index"
+                    or data.get("robustness_method") == "observed_simulation"
+                    or data.get("classification", {}).get("basis") == "observed_simulation"):
+                raise ValueError("Observed roadmap indices are not geometry IDs; select observed_catalog_path (poses.json).")
             if self.original_mesh_path.suffix.lower() != ".stl":
                 raise ValueError("Roadmap IDs require the original STL used to build the roadmap; STEP triangulation changes catalogue IDs.")
             source = _roadmap_source(data, self.roadmap_path)
@@ -323,7 +327,7 @@ class PoseResolver:
             dots = np.clip(self._catalogue_axes @ axis, -1.0, 1.0)
             distances = np.degrees(np.arccos(dots))
         by_node = [
-            (float(np.min(distances[self._catalogue_node_ids == node_id])), int(node_id))
+            (float(np.min(distances[self._catalogue_node_ids == node_id])), node_id.item())
             for node_id in np.unique(self._catalogue_node_ids)
         ]
         by_node.sort()

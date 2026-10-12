@@ -305,6 +305,22 @@ class DropSimulationWindow(QMainWindow):
         self.compute_stability_check = QCheckBox("Zusätzliche Drehimpuls-Störkurven berechnen")
         self.compute_stability_check.setChecked(bool(_default("compute_stability", True)))
         advanced_form.addRow(self.compute_stability_check)
+        self.grouping_check = QCheckBox("Flache Ruhelagen zu Gruppen zusammenfassen")
+        self.grouping_check.setChecked(bool(_default("grouping_enabled", False)))
+        self.grouping_check.toggled.connect(lambda enabled: self.compute_stability_check.setChecked(True) if enabled else None)
+        advanced_form.addRow(self.grouping_check)
+        self.grouping_barrier_spin = _spin(_default("grouping_barrier_mm", .5), 0, 100, 3)
+        advanced_form.addRow("Gruppenbarriere (Hubenergie mm)", self.grouping_barrier_spin)
+        self.grouping_angle_spin = _spin(_default("grouping_max_angle_deg", 60), .1, 180, 1)
+        advanced_form.addRow("Maximaler Gruppenwinkel (°)", self.grouping_angle_spin)
+        self.grouping_frequency_spin = _spin(_default("grouping_minimum_frequency_percent", 1), 0, 100, 2)
+        advanced_form.addRow("Mindesthäufigkeit der Gruppe (%)", self.grouping_frequency_spin)
+        self.observed_catalog_edit = QLineEdit()
+        def choose_observed():
+            filename, _ = QFileDialog.getOpenFileName(self, "Beobachteten Posenkatalog wählen", self.observed_catalog_edit.text(), "Posenkatalog (*.json)")
+            if filename:
+                self.observed_catalog_edit.setText(filename)
+        advanced_form.addRow("Beobachteter Katalog (optional)", self._path_row(self.observed_catalog_edit, choose_observed))
         layout.addWidget(advanced)
 
         self.catalog_export_group = QGroupBox("Posenkatalog automatisch aktualisieren")
@@ -367,8 +383,8 @@ class DropSimulationWindow(QMainWindow):
         self.tabs = QTabWidget()
         frequency_tab = QWidget()
         frequency_layout = QVBoxLayout(frequency_tab)
-        self.result_table = QTableWidget(0, 6)
-        self.result_table.setHorizontalHeaderLabels(["Pose / Status", "Anzahl", "Anteil", "KI unten", "KI oben", "Ansicht"])
+        self.result_table = QTableWidget(0, 7)
+        self.result_table.setHorizontalHeaderLabels(["Pose / Status", "Anzahl", "Anteil", "KI unten", "KI oben", "Ansicht", "Gruppenmitglieder"])
         self.result_table.horizontalHeader().setStretchLastSection(True)
         self.result_table.setMinimumHeight(180)
         frequency_layout.addWidget(self.result_table)
@@ -377,8 +393,8 @@ class DropSimulationWindow(QMainWindow):
         stability_tab = QWidget()
         stability_layout = QVBoxLayout(stability_tab)
         stability_layout.addWidget(QLabel("Rangfolge nach Fläche unter der Störkurve (0–1)"))
-        self.stability_rank_table = QTableWidget(0, 4)
-        self.stability_rank_table.setHorizontalHeaderLabels(["Rang", "Pose", "AUC", "Vollständig"])
+        self.stability_rank_table = QTableWidget(0, 6)
+        self.stability_rank_table.setHorizontalHeaderLabels(["Rang", "Pose / Gruppe", "AUC", "Vollständig", "Mitglieder", "Repräsentant"])
         self.stability_rank_table.horizontalHeader().setStretchLastSection(True)
         self.stability_rank_table.setMinimumHeight(120)
         stability_layout.addWidget(self.stability_rank_table)
@@ -658,6 +674,10 @@ class DropSimulationWindow(QMainWindow):
         if not levels:
             raise ValueError("Mindestens eine Störstufe ist erforderlich.")
         return {**{name: widget.value() for name, widget in self._parameter_widgets().items()},
+                "grouping_enabled": self.grouping_check.isChecked(),
+                "grouping_barrier_mm": self.grouping_barrier_spin.value(),
+                "grouping_max_angle_deg": self.grouping_angle_spin.value(),
+                "grouping_minimum_frequency_percent": self.grouping_frequency_spin.value(),
                 "compute_stability": self.compute_stability_check.isChecked(),
                 "catalog_push": self.catalog_push_check.isChecked(),
                 "roughness_enabled": self.roughness_check.isChecked(),
@@ -669,7 +689,8 @@ class DropSimulationWindow(QMainWindow):
             inputs = {name: str(Path(edit.text().strip()).expanduser().resolve()) if edit.text().strip() else ""
                       for name, edit in (("mesh_path", self.mesh_edit), ("roadmap_path", self.roadmap_edit),
                                          ("output_dir", self.output_edit), ("catalog_repo", self.catalog_repo_edit),
-                                         ("catalog_cad_dir", self.catalog_cad_edit))}
+                                         ("catalog_cad_dir", self.catalog_cad_edit),
+                                         ("observed_catalog_path", self.observed_catalog_edit))}
             if not self.catalog_export_check.isChecked():
                 inputs["catalog_repo"] = ""
             save_defaults(self._settings_path, parameters, inputs)
@@ -694,6 +715,10 @@ class DropSimulationWindow(QMainWindow):
         if "roughness_enabled" in parameters:
             self.roughness_check.setChecked(parameters["roughness_enabled"])
         self.compute_stability_check.setChecked(parameters.get("compute_stability", True))
+        self.grouping_check.setChecked(parameters.get("grouping_enabled", False))
+        self.grouping_barrier_spin.setValue(parameters.get("grouping_barrier_mm", .5))
+        self.grouping_angle_spin.setValue(parameters.get("grouping_max_angle_deg", 60))
+        self.grouping_frequency_spin.setValue(parameters.get("grouping_minimum_frequency_percent", 1))
         self.catalog_push_check.setChecked(parameters.get("catalog_push", True))
         if "roughness_model" in parameters:
             self.roughness_model_combo.setCurrentIndex(self.roughness_model_combo.findData(parameters["roughness_model"]))
@@ -701,7 +726,8 @@ class DropSimulationWindow(QMainWindow):
             self.levels_edit.setText(", ".join(str(value) for value in parameters["disturbance_levels_mm"]))
         for name, edit in (("mesh_path", self.mesh_edit), ("roadmap_path", self.roadmap_edit),
                            ("output_dir", self.output_edit), ("catalog_repo", self.catalog_repo_edit),
-                           ("catalog_cad_dir", self.catalog_cad_edit)):
+                           ("catalog_cad_dir", self.catalog_cad_edit),
+                           ("observed_catalog_path", self.observed_catalog_edit)):
             if name in data["inputs"]:
                 edit.setText(data["inputs"][name])
         self.catalog_export_check.setChecked(bool(data["inputs"].get("catalog_repo")))
@@ -724,6 +750,8 @@ class DropSimulationWindow(QMainWindow):
                 if self.roadmap_edit.text().strip() else None
             ),
             output_dir=Path(output).expanduser().resolve(),
+            observed_catalog_path=Path(self.observed_catalog_edit.text()).expanduser().resolve()
+                if self.observed_catalog_edit.text().strip() else None,
             catalog_repo=Path(self.catalog_repo_edit.text()).expanduser().resolve()
                 if self.catalog_export_check.isChecked() and self.catalog_repo_edit.text().strip() else None,
             catalog_cad_dir=Path(self.catalog_cad_edit.text()).expanduser().resolve()
@@ -1225,8 +1253,8 @@ class DropSimulationWindow(QMainWindow):
                     self._log_line(f"Stabilitätsdaten konnten nicht gelesen werden: {exc}")
             return None
 
-        ranking = csv_rows("stability_summary.csv")
-        curves = csv_rows("stability.csv")
+        ranking = csv_rows("group_stability_summary.csv") or csv_rows("stability_summary.csv")
+        curves = csv_rows("group_stability.csv") or csv_rows("stability.csv")
         if ranking is None or curves is None:
             candidates = list(base.glob("summary.json")) + list(base.glob("*/summary.json"))
             for path in sorted(candidates, key=lambda item: item.stat().st_mtime, reverse=True):
@@ -1241,7 +1269,7 @@ class DropSimulationWindow(QMainWindow):
         self._fill_stability_table(
             self.stability_rank_table,
             ranking or [],
-            ("rank", "pose_id", "retention_auc", "complete"),
+            ("rank", "pose_id", "retention_auc", "complete", "members", "representative_source_pose_id"),
         )
         self._fill_stability_table(
             self.stability_curve_table,
@@ -1303,6 +1331,13 @@ class DropSimulationWindow(QMainWindow):
             button.setEnabled(bool(row.get("representative_quat_xyzw")) and self._run_dir is not None)
             button.clicked.connect(lambda _checked=False, selected=row: self._show_pose(selected))
             self.result_table.setCellWidget(index, 5, button)
+            members = row.get("members", [])
+            if isinstance(members, str):
+                try:
+                    members = json.loads(members)
+                except ValueError:
+                    members = [members]
+            self.result_table.setItem(index, 6, QTableWidgetItem(", ".join(members)))
 
     def _show_preview_image(self) -> None:
         if self._preview_record is None:

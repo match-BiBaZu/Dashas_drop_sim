@@ -27,7 +27,7 @@ def _config(path: Path) -> RunConfig:
     raw = json.loads(path.read_text(encoding="utf-8-sig"))
     if not isinstance(raw, dict):
         raise ValueError("Configuration JSON must contain an object.")
-    for key in ("mesh_path", "roadmap_path", "output_dir", "catalog_repo", "catalog_cad_dir"):
+    for key in ("mesh_path", "roadmap_path", "output_dir", "catalog_repo", "catalog_cad_dir", "observed_catalog_path"):
         if raw.get(key) is not None and not Path(raw[key]).expanduser().is_absolute():
             raw[key] = str((path.parent / Path(raw[key]).expanduser()).resolve())
     return RunConfig.from_dict(raw)
@@ -57,9 +57,13 @@ def _preview(config: RunConfig, trial_index: int, *, visible: bool, stopped: thr
     run_dir = _new_run_dir(config.output_dir, config.seed)
     _write_json(run_dir / "config.json", config.to_dict())
     part = prepare_part(config.mesh_path, config.output_dir / ".mesh_cache", config.density_g_cm3)
-    resolver = PoseResolver(part.catalog_mesh_path, config.roadmap_path,
-                            original_mesh_path=config.mesh_path,
-                            cache_dir=config.output_dir / ".pose_cache")
+    if config.observed_catalog_path is not None:
+        from .observed import ObservedPoseResolver
+        resolver = ObservedPoseResolver(config.mesh_path, config.observed_catalog_path)
+    else:
+        resolver = PoseResolver(part.catalog_mesh_path, config.roadmap_path,
+                                original_mesh_path=config.mesh_path,
+                                cache_dir=config.output_dir / ".pose_cache")
     _write_json(run_dir / "manifest.json", build_manifest(config, part, resolver))
     simulator = ChuteSimulator(config, part)
     child = np.random.SeedSequence(config.seed).spawn(trial_index + 1)[-1]

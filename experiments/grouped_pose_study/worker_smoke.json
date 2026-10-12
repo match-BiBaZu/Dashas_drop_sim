@@ -1,0 +1,15 @@
+{
+  "identical": true,
+  "runs": [
+    {
+      "sha256": "1396856e4e63f92bc216defa07e3a3eaed6206f79c49bdaccf8d1042520a13ee",
+      "trials": 8,
+      "workers": 1
+    },
+    {
+      "sha256": "1396856e4e63f92bc216defa07e3a3eaed6206f79c49bdaccf8d1042520a13ee",
+      "trials": 8,
+      "workers": 8
+    }
+  ]
+}

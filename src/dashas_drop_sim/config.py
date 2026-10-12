@@ -18,6 +18,11 @@ class RunConfig:
     catalog_cad_dir: Path | None = None
     catalog_push: bool = True
     compute_stability: bool = True
+    observed_catalog_path: Path | None = None
+    grouping_enabled: bool = False
+    grouping_barrier_mm: float = 0.5
+    grouping_max_angle_deg: float = 60.0
+    grouping_minimum_frequency_percent: float = 1.0
     trials: int = 100
     seed: int = 42
     belt_speed_mm_s: float = 100.0
@@ -46,7 +51,7 @@ class RunConfig:
     disturbance_levels_mm: tuple[float, ...] = (0.0, 0.05, 0.1, 0.2, 0.4, 0.8)
 
     def validate(self) -> None:
-        for name in ("catalog_repo", "catalog_cad_dir"):
+        for name in ("catalog_repo", "catalog_cad_dir", "observed_catalog_path"):
             value = getattr(self, name)
             setattr(self, name, None if value in (None, "") else Path(value).expanduser().resolve())
         self.mesh_path = Path(self.mesh_path).expanduser().resolve()
@@ -61,11 +66,26 @@ class RunConfig:
         ):
             raise ValueError("The optional roadmap must be an existing JSON or YAML file.")
         self.validate_parameters()
+        if self.observed_catalog_path is not None and not self.observed_catalog_path.is_file():
+            raise ValueError("The observed catalog must be an existing JSON file.")
 
     def validate_parameters(self) -> None:
         """Validate simulation settings even before a workpiece is selected."""
         if not isinstance(self.compute_stability, bool) or not isinstance(self.catalog_push, bool):
             raise ValueError("compute_stability and catalog_push must be true or false")
+        if not isinstance(self.grouping_enabled, bool):
+            raise ValueError("grouping_enabled must be true or false")
+        if self.grouping_enabled and not self.compute_stability:
+            raise ValueError("Grouping requires compute_stability to select assessed representatives.")
+        if self.grouping_enabled and self.catalog_repo is not None:
+            raise ValueError("Grouped runs use local exports; disable automatic catalog publication.")
+        for name, upper in (("grouping_barrier_mm", 100), ("grouping_max_angle_deg", 180),
+                            ("grouping_minimum_frequency_percent", 100)):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not math.isfinite(value) or not 0 <= value <= upper:
+                raise ValueError(f"{name} must be finite and between 0 and {upper}")
+        if self.grouping_max_angle_deg == 0:
+            raise ValueError("grouping_max_angle_deg must be positive")
         if not isinstance(self.trials, int) or self.trials < 1:
             raise ValueError("trials must be a positive integer")
         if not isinstance(self.seed, int) or self.seed < 0:
@@ -118,13 +138,15 @@ class RunConfig:
         if levels != tuple(sorted(set(levels))):
             raise ValueError("Disturbance levels must be unique and increasing")
         self.disturbance_levels_mm = levels
+        if self.grouping_enabled:
+            self.disturbance_levels_mm = tuple(sorted(set((*levels, self.grouping_barrier_mm))))
 
     def to_dict(self) -> dict[str, Any]:
         result = asdict(self)
         result["mesh_path"] = str(Path(self.mesh_path).expanduser().resolve())
         result["output_dir"] = str(Path(self.output_dir).expanduser().resolve())
         result["roadmap_path"] = None if self.roadmap_path is None else str(Path(self.roadmap_path).expanduser().resolve())
-        for name in ("catalog_repo", "catalog_cad_dir"):
+        for name in ("catalog_repo", "catalog_cad_dir", "observed_catalog_path"):
             value = getattr(self, name)
             result[name] = None if value is None else str(Path(value).expanduser().resolve())
         return result
@@ -136,7 +158,7 @@ class RunConfig:
         if extras:
             raise ValueError(f"Unknown configuration keys: {sorted(extras)}")
         payload = dict(raw)
-        for key in ("mesh_path", "output_dir", "roadmap_path", "catalog_repo", "catalog_cad_dir"):
+        for key in ("mesh_path", "output_dir", "roadmap_path", "catalog_repo", "catalog_cad_dir", "observed_catalog_path"):
             if payload.get(key) is not None:
                 payload[key] = Path(payload[key])
         if "disturbance_levels_mm" in payload:

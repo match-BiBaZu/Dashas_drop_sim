@@ -281,7 +281,7 @@ def build_manifest(config: RunConfig, part: PreparedPart, resolver: PoseResolver
     """Shared provenance for a batch or a visible single trial."""
     try:
         software_commit = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=Path(__file__).resolve().parents[2],
+            ["git", "-c", f"safe.directory={Path(__file__).resolve().parents[2].as_posix()}", "rev-parse", "HEAD"], cwd=Path(__file__).resolve().parents[2],
             text=True, stderr=subprocess.DEVNULL,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).strip()
     except (OSError, subprocess.CalledProcessError):
@@ -292,6 +292,7 @@ def build_manifest(config: RunConfig, part: PreparedPart, resolver: PoseResolver
         "mesh_source_sha256": part.source_sha256,
         "mesh_triangles_sha256": part.mesh_sha256,
         "roadmap_sha256": _sha256(config.roadmap_path),
+        "observed_catalog_sha256": _sha256(config.observed_catalog_path),
         "mass_kg": part.mass_kg,
         "inertia_com_kg_m2": part.inertia_com_kg_m2.tolist(),
         "center_mass_source_mm": part.center_mass_source_mm.tolist(),
@@ -348,6 +349,7 @@ def run_experiment(
     config: RunConfig, *, emit: EventCallback | None = None,
     cancel: CancelCallback | None = None,
     visible: bool = False,
+    resume_run_dir: Path | None = None,
 ) -> RunResult:
     config.validate()
     emit = emit or (lambda _event: None)
@@ -358,12 +360,23 @@ def run_experiment(
         return requested_cancel() or viewer_closed
 
     cancel = should_cancel
-    run_dir = _new_run_dir(config.output_dir, config.seed)
+    run_dir = Path(resume_run_dir) if resume_run_dir else _new_run_dir(config.output_dir, config.seed)
+    if resume_run_dir:
+        previous = json.loads((run_dir / "config.json").read_text(encoding="utf-8"))
+        expected = json.loads(json.dumps(config.to_dict()))
+        for value in (previous, expected):
+            value.pop("workers", None)
+        if previous != expected:
+            raise ValueError("Resume configuration differs from the checkpoint.")
     _write_json(run_dir / "config.json", config.to_dict())
     part = prepare_part(config.mesh_path, config.output_dir / ".mesh_cache", config.density_g_cm3)
-    resolver = PoseResolver(part.catalog_mesh_path, config.roadmap_path,
-                            original_mesh_path=config.mesh_path,
-                            cache_dir=config.output_dir / ".pose_cache")
+    if config.observed_catalog_path is not None:
+        from .observed import ObservedPoseResolver
+        resolver = ObservedPoseResolver(config.mesh_path, config.observed_catalog_path)
+    else:
+        resolver = PoseResolver(part.catalog_mesh_path, config.roadmap_path,
+                                original_mesh_path=config.mesh_path,
+                                cache_dir=config.output_dir / ".pose_cache")
     simulator = ChuteSimulator(config, part)
     _write_json(run_dir / "manifest.json", build_manifest(config, part, resolver))
     emit({"event": "started", "run_dir": str(run_dir), "visible": visible})
@@ -372,7 +385,24 @@ def run_experiment(
     jobs = [(index, int(child.generate_state(1, dtype=np.uint32)[0]))
             for index, child in enumerate(child_seeds)]
     rows: list[dict[str, Any]] = []
-    with (run_dir / "trials.jsonl").open("w", encoding="utf-8") as stream:
+    if resume_run_dir and (run_dir / "trials.jsonl").is_file():
+        lines = (run_dir / "trials.jsonl").read_text(encoding="utf-8").splitlines()
+        for index, line in enumerate(lines):
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                if index != len(lines) - 1:
+                    raise
+                break
+            rows.append(row)
+        completed_ids = {row["trial"] for row in rows}
+        expected_seeds = dict(jobs)
+        if len(completed_ids) != len(rows) or any(expected_seeds.get(row["trial"]) != row["seed"] for row in rows):
+            raise ValueError("Invalid drop checkpoint IDs or seeds.")
+        jobs = [job for job in jobs if job[0] not in completed_ids]
+        _write_jsonl(run_dir / "trials.jsonl", rows)
+        emit({"event": "resumed", "completed": len(rows), "remaining": len(jobs)})
+    with (run_dir / "trials.jsonl").open("a" if resume_run_dir else "w", encoding="utf-8") as stream:
         def record_drop(outcome: TrialOutcome) -> None:
             match = resolver.resolve(outcome.final_quat_xyzw) if outcome.status in SETTLED_STATUSES else None
             row = outcome.to_dict()
@@ -454,7 +484,7 @@ def run_experiment(
             frequency["representative_pos_chute_mm"] = example["final_pos_chute_mm"]
             frequency["representative_source"] = "observed"
         elif key in {str(pose_id) for pose_id in resolver.known_pose_ids}:
-            frequency["representative_quat_xyzw"] = resolver.reference_quaternion(int(key))
+            frequency["representative_quat_xyzw"] = resolver.reference_quaternion(key if config.observed_catalog_path else int(key))
             frequency["representative_pos_chute_mm"] = None
             frequency["representative_source"] = "catalogue"
     _write_csv(run_dir / "frequencies.csv", [
@@ -464,8 +494,21 @@ def run_experiment(
     for frequency in frequencies:
         emit({"event": "result", **frequency})
 
-    disturbances, curves = (_stability_rows(rows, config, simulator, resolver, cancel, emit)
-                            if config.compute_stability else ([], []))
+    group_summary = {}
+    if config.grouping_enabled:
+        from .grouped_run import assess_and_export
+        group_summary = assess_and_export(config, simulator, resolver, rows, run_dir, cancel, emit)
+        curves = [{**r, "retention": r["individual_retention"]} for r in group_summary["group_stability_curves"]]
+        disturbances = []
+        membership = {key: group["members"] for group in group_summary["pose_groups"] for key in group["members"]}
+        for frequency in frequencies:
+            frequency["members"] = membership.get(frequency["pose_id"], [])
+        _write_csv(run_dir / "frequencies.csv", [
+            "pose_id", "category", "count", "probability", "ci_low", "ci_high", "members",
+            "representative_quat_xyzw", "representative_pos_chute_mm", "representative_source"], frequencies)
+    else:
+        disturbances, curves = (_stability_rows(rows, config, simulator, resolver, cancel, emit)
+                                if config.compute_stability else ([], []))
     ranking = _ranking(curves, config.disturbance_levels_mm)
     _write_csv(run_dir / "disturbances.csv", [
         "disturbance_index", "source_pose_id", "source_trial", "energy_lift_mm", "energy_j", "direction_index",
@@ -502,6 +545,7 @@ def run_experiment(
     ], curves)
     _write_csv(run_dir / "stability_summary.csv", ["pose_id", "retention_auc", "complete", "rank"], ranking)
     summary = {
+        **group_summary,
         "requested_trials": config.trials,
         "completed_trials": len(rows),
         "cancelled": bool(cancel()),
@@ -518,5 +562,5 @@ def run_experiment(
     }
     _write_json(run_dir / "summary.json", summary)
     emit({"event": "done", "run_dir": str(run_dir), "summary": str(run_dir / "summary.json"),
-          "pose_frequencies": frequencies})
+          "pose_frequencies": frequencies, **group_summary})
     return RunResult(run_dir, summary)

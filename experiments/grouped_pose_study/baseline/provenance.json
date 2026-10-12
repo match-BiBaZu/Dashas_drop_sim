@@ -1,0 +1,49 @@
+{
+  "repository": "match-BiBaZu/BiBaZu_StableComponentenRoadmaps",
+  "revision": "0b3b5c5fe42e787bd47f381b1f1ac57359d5aa55",
+  "workpieces": {
+    "Qk1a": {
+      "catalog_sha256": "ff37a6e52a558fadb2a2d11fdb22844662b54b7a53ffbb8e6aa327624e9f41e7",
+      "source_pose_to_roadmap_id": {
+        "Qk1a_0007": 0,
+        "Qk1a_0008": 1,
+        "Qk1a_0009": 2,
+        "Qk1a_0006": 3,
+        "Qk1a_0012": 4,
+        "Qk1a_0004": 5,
+        "Qk1a_0003": 6,
+        "Qk1a_0001": 7,
+        "Qk1a_0010": 8,
+        "Qk1a_0011": 9
+      },
+      "mesh_sha256": "d9ecf28b323ede64356d933d0f7b91f69848c4f6ba34b742888bbbc1c90461f0"
+    },
+    "Dl1a": {
+      "catalog_sha256": "e234489e16f3e45342cd394c2763ff0f29025c7bed19d5d8d01c1e9156e695c5",
+      "source_pose_to_roadmap_id": {
+        "Dl1a_0007": 0,
+        "Dl1a_0006": 1,
+        "Dl1a_0004": 2,
+        "Dl1a_0005": 3,
+        "Dl1a_0014": 4,
+        "Dl1a_0009": 5,
+        "Dl1a_0008": 6
+      },
+      "mesh_sha256": "17a85e9638816fb25c36ddd65da6c4c9718db6d924b8d7ed5c3aec96d7a0f030"
+    },
+    "Dk1i": {
+      "catalog_sha256": "c24da7418bcc50d82d3dd55a8fa76b97aef115e001e726fd6c2285dc7c4a6a75",
+      "source_pose_to_roadmap_id": {
+        "Dk1i_0007": 0,
+        "Dk1i_0002": 1,
+        "Dk1i_0005": 2,
+        "Dk1i_0006": 3,
+        "Dk1i_0003": 4,
+        "Dk1i_0004": 5,
+        "Dk1i_0001": 6,
+        "Dk1i_0008": 7
+      },
+      "mesh_sha256": "3da2610e5110cf3be1897606d191a245f3ffab9e33fad9130fea6cab1fc17c48"
+    }
+  }
+}
