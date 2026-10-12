@@ -49,6 +49,13 @@ and publication. The default is one workpiece; choose 1 or 2 on smaller hosts.
 Child processes cap BLAS threads at one to avoid nested thread allocations.
 Interrupted independent journals are also adopted by the sequential command.
 
+For unattended operation, launch `python -m experiments.grouped_catalog39_supervisor`
+in a hidden background process. It runs the sequential production command,
+retries resumable failures, audits all completed workpieces, verifies remote
+branch commits, and pushes the final simulator report. Its live status is
+`results/grouped_catalog39/supervisor.json`. `--attach-pid` can monitor an
+already-running coordinator without starting a second production process.
+
 The roadmap merge was resolved using complete published component sets,
 retaining both parent histories. Its backup is outside Git in the workspace's
 `.task_artifacts/roadmap_merge_backup/` directory. The repaired main commit is
