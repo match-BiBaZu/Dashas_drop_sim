@@ -107,7 +107,7 @@ def main():
     for attempt in range(1, 4):
         if code != 0:
             heartbeat("resuming", attempt=attempt)
-            code = run_stage(["--publish"], OUTPUT / "supervised_production.log")
+            code = run_stage(["--publish", "--refresh-exports"], OUTPUT / "supervised_production.log")
         if code == 0:
             code = run_stage(["--audit-only"], OUTPUT / "supervised_audit.log")
         if code == 0:

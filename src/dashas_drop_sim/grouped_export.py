@@ -86,6 +86,26 @@ def verify_inventory(folder):
         raise ValueError(f"Export inventory mismatch: {folder}")
 
 
+def verify_grouped_catalog(folder):
+    data = read(folder / "poses.json")
+    original = read(folder / "original_observations.json")
+    members = {p["id"]: p for p in original["poses"]}
+    registry = read(folder / "pose_registry.json")
+    if {p["id"] for p in data["poses"]} != {p["id"] for p in registry["entries"]}:
+        raise ValueError("Current registry contains non-representative poses.")
+    all_ids = [i for p in members.values() for i in p["trial_ids"]]
+    if len(all_ids) != len(set(all_ids)) or any(len(p["trial_ids"]) != p["count"] for p in members.values()):
+        raise ValueError("Original trial identities are missing or duplicated.")
+    if len(all_ids) + original["unassigned_settled_trials"] != data["settled_trials"]:
+        raise ValueError("Original trial identity count is not conserved.")
+    for pose in data["poses"]:
+        expected = sorted(i for key in pose["group_members"] for i in members[key]["trial_ids"])
+        if pose["trial_ids"] != expected or len(expected) != pose["count"]:
+            raise ValueError("Combined trial identities do not match group membership.")
+        if pose["individual_trial_ids"] != members[pose["id"]]["trial_ids"]:
+            raise ValueError("Representative individual trials differ from original observations.")
+
+
 def audit_run(run, expected_trials=10000):
     """Validate complete drop and member-assessment checkpoints before exporting."""
     run = Path(run)
@@ -195,9 +215,23 @@ def export_grouped_poses(run, repository, baseline, registry, *, cad_dir=None, p
     by_id = {m["id"]: m for m in members}
     member_groups = {key: g for g in groups for key in g["members"]}
     original_by_id = {str(p["id"]): p for p in baseline["poses"]}
+    trial_ids = {key: [] for key in identities}
+    raw_path = run / "trials.jsonl"
+    opener = open if raw_path.is_file() else gzip.open
+    with opener(raw_path if raw_path.is_file() else raw_path.with_suffix(".jsonl.gz"), "rt", encoding="utf-8") as stream:
+        for line in stream:
+            row = json.loads(line)
+            if row["status"] in SETTLED_STATUSES and row["pose_key"] in trial_ids:
+                trial_ids[row["pose_key"]].append(row["trial"])
     for member in members:
         details = copy.deepcopy(original_by_id.get(member["id"], {}))
+        for stale in ("trial_ids", "representative_trial", "roadmap_pose_ids", "roadmap_match_statuses",
+                      "id_assignment", "previous_candidates"):
+            details.pop(stale, None)
         details.update(member)
+        details["trial_ids"] = sorted(trial_ids[member["simulation_pose_key"]])
+        details["representative_trial"] = member["source_trial"]
+        details["anchor_origin"] = "published_baseline" if member["id"] in original_by_id else "current_drop_observation"
         details["image"] = f"images/{member['id']}.png"
         details["frequency_percent"] = 100 * member["count"] / expected_trials
         details["frequency_settled_percent"] = 100 * member["count"] / summary["settled_trials"] if summary["settled_trials"] else 0
@@ -229,6 +263,10 @@ def export_grouped_poses(run, repository, baseline, registry, *, cad_dir=None, p
                               ci95_percent=[100 * group["ci_low"], 100 * group["ci_high"]])
         representative["reference_quaternions_xyzw"] = [q for key in group["members"]
                                                         for q in by_id[key]["reference_quaternions_xyzw"]]
+        representative["individual_trial_ids"] = representative["trial_ids"]
+        representative["trial_ids"] = sorted(i for key in group["members"] for i in by_id[key]["trial_ids"])
+        if len(representative["trial_ids"]) != representative["count"]:
+            raise ValueError("Grouped trial identities differ from the combined count.")
         catalogue["poses"].append(representative)
     catalogue["poses"].sort(key=lambda p: (-p["count"], p["id"]))
     original_observations = {**catalogue, "poses": list(by_id.values()), "grouping": {"enabled": False},
@@ -302,6 +340,7 @@ def export_grouped_poses(run, repository, baseline, registry, *, cad_dir=None, p
         (staged / "README.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
         inventory(staged)
         verify_inventory(staged)
+        verify_grouped_catalog(staged)
         if read(staged / "poses.json") != yaml.safe_load((staged / "poses.yaml").read_text()):
             raise ValueError("Grouped JSON/YAML mismatch.")
         _replace(staged, repository / part)

@@ -75,6 +75,10 @@ def test_grouped_export_keeps_counts_member_images_recognition_and_registry(grou
     assert {p["id"] for p in data["poses"]} == {"Cube_0001", "Cube_0003"}
     first = next(p for p in data["poses"] if p["id"] == "Cube_0001")
     assert first["individual_count"] == 1 and first["group_members"] == ["Cube_0001", "Cube_0002"]
+    assert first["trial_ids"] == [0, 1] and first["individual_trial_ids"] == [0]
+    assert first["representative_trial"] == 0
+    originals = read(folder / "original_observations.json")["poses"]
+    assert sum(len(p["trial_ids"]) for p in originals) == 4
     assert recognize_pose(baseline["poses"][1]["quaternion_xyzw"], data)["pose_id"] == "Cube_0001"
     assert {e["id"] for e in read(folder / "pose_registry.json")["entries"]} == {"Cube_0001", "Cube_0003"}
     assert read(folder / "original_pose_registry.json") == registry

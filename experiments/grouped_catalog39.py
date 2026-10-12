@@ -25,7 +25,7 @@ from dashas_drop_sim.catalog_batch import engine_fingerprint, signature
 from dashas_drop_sim.catalog_export import sha256
 from dashas_drop_sim.cli import _config
 from dashas_drop_sim.grouped_export import (archive_completed_run, audit_run, export_grouped_poses, export_grouped_roadmap,
-                                          inventory, read, verify_inventory)
+                                          inventory, read, verify_inventory, verify_grouped_catalog)
 from dashas_drop_sim.runner import run_experiment, _write_json, _write_csv
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -271,6 +271,7 @@ def main():
     parser.add_argument("--prepare-only", action="store_true")
     parser.add_argument("--audit-only", action="store_true")
     parser.add_argument("--publish", action="store_true")
+    parser.add_argument("--refresh-exports", action="store_true", help="Regenerate completed handovers without running physics.")
     parser.add_argument("--simulate-only", help=argparse.SUPPRESS)
     parser.add_argument("--concurrent-workpieces", type=int, choices=(1, 2, 3), default=1,
                         help="Independent workpieces in flight; each retains eight simulation workers.")
@@ -347,6 +348,7 @@ def main():
             if record.get("status") != "complete":
                 raise ValueError(f"Study is incomplete: {part}")
             audit_run(Path(record["run_dir"]))
+            verify_grouped_catalog(args.pose_repo / part)
             for repo in (args.pose_repo, args.roadmap_repo):
                 verify_inventory(repo / part)
             continue
@@ -355,6 +357,8 @@ def main():
         expected_signature = signature(cfg)
         if record and record["signature"] != expected_signature:
             raise ValueError(f"Run configuration/engine changed: {part}")
+        if record.get("status") == "complete" and args.refresh_exports:
+            record = {**record, "status": "simulation_complete"}
         if record.get("status") == "complete":
             if not record.get("reused", False):
                 archive_completed_run(Path(record["run_dir"]), OUTPUT)
