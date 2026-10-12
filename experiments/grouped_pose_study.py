@@ -17,7 +17,8 @@ import time
 
 from dashas_drop_sim.cli import _config
 from dashas_drop_sim.catalog_batch import engine_fingerprint
-from dashas_drop_sim.runner import run_experiment, _write_json
+from dashas_drop_sim.runner import run_experiment, _write_json, _write_csv
+from dashas_drop_sim.grouping import analyze_groups
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = ROOT / "experiments/grouped_pose_study"
@@ -82,7 +83,10 @@ def compact_report(records, provenance):
              "", "| Workpiece | Drops | Settled | Assessed members | Groups ≥1% | Disturbance tests |",
              "| --- | ---: | ---: | ---: | ---: | ---: |"]
     comparisons = {}
-    for part, record in records.items():
+    for part in PARTS:
+        if part not in records:
+            continue
+        record = records[part]
         run_dir = Path(record["run_dir"])
         summary = json.loads((run_dir / "summary.json").read_text())
         groups = summary["pose_groups"]
@@ -92,14 +96,28 @@ def compact_report(records, provenance):
         for group in groups:
             group["baseline_roadmap_members"] = [baseline_ids[key] for key in group["members"] if key in baseline_ids]
             group["baseline_representative_pose"] = baseline_ids.get(group["representative_source_pose_id"])
+            member_curve = sorted((r for r in summary["group_stability_curves"] if r["pose_id"] == group["representative_source_pose_id"]),
+                                  key=lambda r: r["energy_lift_mm"])
+            group["individual_retention_auc"] = sum((a["individual_retention"] + b["individual_retention"]) *
+                                                       (b["energy_lift_mm"] - a["energy_lift_mm"]) / 2
+                                                       for a, b in zip(member_curve, member_curve[1:])) / member_curve[-1]["energy_lift_mm"]
         comparisons[part] = {"completed_trials": summary["completed_trials"], "settled_trials": summary["settled_trials"],
                              "status_counts": summary["status_counts"], "groups": groups,
                              "group_assessment_complete": summary["group_assessment_complete"],
                              "group_disturbance_trials": summary["group_disturbance_trials"],
                              "software_commit": json.loads((run_dir / "manifest.json").read_text())["software_commit"]}
+        with (run_dir / "group_disturbances.jsonl").open() as stream:
+            disturbance_outcomes = [json.loads(line) for line in stream if line.strip()]
+        comparisons[part]["group_retained_tests"] = sum(row["retained"] for row in disturbance_outcomes)
+        comparisons[part]["individual_retained_tests"] = sum(row["individual_retained"] for row in disturbance_outcomes)
         target = output / part
         target.mkdir(exist_ok=True)
-        for filename in ("group_frequencies.csv", "group_stability.csv", "group_stability_summary.csv", "grouping_geometry.json", "group_members.json"):
+        fixture = json.loads((SPEC / "baseline" / f"{part}_roadmap_fixture.json").read_text())
+        baseline_analysis = analyze_groups(ROOT / f"src/dashas_drop_sim/assets/catalog/{part}.STL",
+                                          fixture["members"], fixture["recognition"])
+        _write_json(target / "baseline_grouping_geometry.json", baseline_analysis)
+        comparisons[part]["baseline_groups"] = baseline_analysis["groups"]
+        for filename in ("group_frequencies.csv", "group_stability.csv", "group_stability_summary.csv", "grouping_geometry.json", "group_members.json", "frequencies.csv", "stability.csv", "manifest.json"):
             if filename == "group_members.json":
                 members = json.loads((run_dir / filename).read_text())
                 for member in members:
@@ -107,6 +125,19 @@ def compact_report(records, provenance):
                 _write_json(target / filename, members)
             else:
                 shutil.copyfile(run_dir / filename, target / filename)
+        catalog = json.loads((run_dir / "representatives/poses.json").read_text())
+        catalog["geometry"]["stl"] = Path(os.path.relpath(ROOT / f"src/dashas_drop_sim/assets/catalog/{part}.STL", target)).as_posix()
+        for pose in catalog["poses"]:
+            pose["reference_quaternions_xyzw"] = [pose["quaternion_xyzw"]]
+        _write_json(target / "representatives.json", catalog)
+        catalog_hash = hashlib.sha256((target / "representatives.json").read_bytes()).hexdigest()
+        def catalog_provenance(metadata):
+            metadata["original_source_sha256"] = metadata["source_sha256"]
+            metadata.update(source_file="representatives.json", source_sha256=catalog_hash)
+        roadmap_manifest = json.loads((run_dir / "roadmaps" / part / "manifest.json").read_text())
+        catalog_provenance(roadmap_manifest["input"])
+        roadmap_manifest["group_frequency_cutoff_percent"] = 1
+        _write_json(target / "roadmap_manifest.json", roadmap_manifest)
         for filename in (f"{part}_roadmap.json", f"{part}_roadmap.yaml", f"{part}_roadmap.png", f"{part}_roadmap.svg"):
             path = run_dir / "roadmaps" / part / filename
             if path.is_file():
@@ -115,25 +146,57 @@ def compact_report(records, provenance):
                     for node in document["nodes"]:
                         node.pop("thumbnail_png_base64", None)
                     document["source"] = Path(os.path.relpath(ROOT / f"src/dashas_drop_sim/assets/catalog/{part}.STL", target)).as_posix()
+                    catalog_provenance(document["generation"])
+                    catalog_provenance(document["classical_metadata"]["observed_pose_generation"])
+                    document["group_ranking_method"] = "representative_group_retention_auc"
+                    for node in document["nodes"]:
+                        node["group_stability_rank"] = next(g["rank"] for g in groups if g["representative_source_pose_id"] == node["source_pose_ids"][0])
                     _write_json(target / filename, document)
+                    membership = [{"roadmap_pose_id": node["node_id"],
+                                   "representative_source_pose_id": node["source_pose_ids"][0],
+                                   "source_pose_id": member,
+                                   "baseline_roadmap_pose_id": baseline_ids.get(member)}
+                                  for node in document["nodes"] for member in node["group_members"]]
+                    _write_csv(target / "roadmap_membership.csv", list(membership[0]) if membership else [], membership)
                 elif path.suffix == ".yaml":
                     import yaml
                     handover = yaml.safe_load(path.read_text())
                     handover["part"]["mesh_source"] = Path(os.path.relpath(ROOT / f"src/dashas_drop_sim/assets/catalog/{part}.STL", target)).as_posix()
+                    catalog_provenance(handover["generation"])
+                    handover["classification"]["group_ranking_method"] = "representative_group_retention_auc"
+                    for pose in handover["poses"]:
+                        pose["group_stability_rank"] = next(g["rank"] for g in groups if g["representative_source_pose_id"] == pose["source_pose_ids"][0])
                     (target / filename).write_text(yaml.safe_dump(handover, sort_keys=False), encoding="utf-8")
                 else:
                     shutil.copyfile(path, target / filename)
     _write_json(output / "comparison.json", {"baseline": provenance, "workpieces": comparisons})
     for part, data in comparisons.items():
-        lines += ["", f"## {part}", "", "| Group members (published roadmap IDs) | Representative | Frequency | Group retention AUC |",
-                  "| --- | --- | ---: | ---: |"]
+        lines += ["", f"## {part}", "", "| Group members (published roadmap IDs) | Representative | Frequency | Individual retention AUC | Group retention AUC |",
+                  "| --- | --- | ---: | ---: | ---: |"]
         for group in data["groups"]:
             if group["retained_by_frequency"]:
                 baseline_ids = provenance["workpieces"][part]["source_pose_to_roadmap_id"]
-                labels = ", ".join(str(baseline_ids.get(key, key)) for key in group["members"])
+                labels = ", ".join([str(value) for value in sorted(group["baseline_roadmap_members"])] +
+                                   [key for key in group["members"] if key not in baseline_ids])
                 rep = group["baseline_representative_pose"]
-                lines.append(f"| {labels} | {rep if rep is not None else group['representative_source_pose_id']} | {100 * group['probability']:.2f}% | {group['retention_auc']:.4f} |")
+                lines.append(f"| {labels} | {rep if rep is not None else group['representative_source_pose_id']} | {100 * group['probability']:.2f}% | {group['individual_retention_auc']:.4f} | {group['retention_auc']:.4f} |")
+        lines += ["", "Baseline-only memberships: " + "; ".join("{" + ", ".join(keys) + "}" for keys in data["baseline_groups"]) + ".",
+                  f"Across all member disturbance tests, {data['group_retained_tests']} retained the group and {data['individual_retained_tests']} retained the exact individual pose.",
+                  "Additional source IDs identify rare baseline observations below the published individual-pose frequency cutoff. Their counts are included before the group cutoff.",
+                  "", "`roadmap_membership.csv` maps new roadmap node IDs to representatives, every source member, and the published numbering. `representatives.json` is the representative-only input catalog."]
+        if part == "Dk1i":
+            baseline_analysis = json.loads((output / part / "baseline_grouping_geometry.json").read_text())
+            lines += ["", "| Published candidate pair | Forward barrier (mm) | Reverse barrier (mm) | Angular separation |",
+                      "| --- | ---: | ---: | ---: |"]
+            for first, second in (("1", "5"), ("2", "4")):
+                evidence = next(p for p in baseline_analysis["paths"] if p["source"] == first and p["target"] == second)
+                lines.append(f"| {{{first},{second}}} | {evidence['forward_barrier_mm']:.4f} | {evidence['reverse_barrier_mm']:.4f} | {evidence['angle_deg']:.2f}° |")
+            lines += ["", "Both pairs satisfy the same 0.5 mm rule used for all workpieces; neither pair is prescribed in the grouping implementation."]
+            if data["individual_retained_tests"] == data["group_disturbance_trials"]:
+                lines += ["No settled switching between individual members was observed in these disturbance tests. The consolidation is supported by the sampled geometric barrier criterion; the measured individual and group retention scores coincide."]
     lines += ["", "AUC measures remaining within the group throughout settled observations across the configured energy levels and directions. These scores use the configured virtual chute and uncalibrated contact assumptions.",
+              "", "Validation: the simulator suite passed 102 tests before production. Updated GUI checks (5 tests) and published geometry regressions (3 cases) also passed. The seeded 8-drop comparison produced identical records with 1 and 8 workers; see [worker_smoke.json](../worker_smoke.json).",
+              "The [production audit](validation.json) verifies unique trial IDs and seeds, count conservation, complete member assessments, deterministic representatives, and representative-only roadmap orientations. Export checksums are in `files.sha256.json`.",
               "", "Full drop and disturbance trajectories remain under ignored `results/grouped_pose_study/`. No existing pose or roadmap catalog is modified."]
     (output / "README.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 

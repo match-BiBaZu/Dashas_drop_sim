@@ -1,0 +1,128 @@
+{
+  "belt_speed_variation": {
+    "control_point_clock": "elapsed time from start of observation (after reseating for stability trials)",
+    "control_point_interval_s": 0.2,
+    "enabled": true,
+    "interpretation": "Uniform random speed targets joined by smooth cosine transitions; forces arise from MuJoCo contact friction, not direct body kicks.",
+    "model": "cosine_interpolated_uniform_speed_v1",
+    "speed_range_mm_s": [
+      97,
+      103
+    ]
+  },
+  "catalog_mesh_path": "C:\\Users\\Administrator\\Documents\\Dashas_ws\\Dashas_drop_sim\\src\\dashas_drop_sim\\assets\\catalog\\Qk1a.STL",
+  "catalog_symmetry": "C4",
+  "catalogue_cache_hit": false,
+  "center_mass_source_mm": [
+    13.000000002729305,
+    13.000000002729305,
+    15.191610991424698
+  ],
+  "classification_ambiguity_margin_deg": 1.0,
+  "classification_tolerance_deg": 5.0,
+  "collision_quality": {
+    "coacd_threshold_mm": 0.5,
+    "collision_bounds_max_abs_error_mm": 0.0002922415733332129,
+    "collision_part_count": 9,
+    "collision_summed_part_volume_mm3": 12234.512486347588,
+    "collision_summed_volume_relative_error": 7.148115001887586e-06,
+    "method": "coacd",
+    "note": "Part volumes are summed; overlapping convex parts are not unioned.",
+    "source_convexity_volume_gap_fraction": 0.18318137880621665,
+    "source_hull_volume_mm3": 14978.141677756823,
+    "source_volume_mm3": 12234.425033270469
+  },
+  "created_utc": "2026-10-12T16:30:34.313736+00:00",
+  "inertia_com_kg_m2": [
+    [
+      1.539998619944907e-06,
+      1.0710209608078002e-21,
+      -3.766421927139163e-16
+    ],
+    [
+      1.0710209608078002e-21,
+      1.539998619944907e-06,
+      -3.7664326373487704e-16
+    ],
+    [
+      -3.766421927139163e-16,
+      -3.7664326373487704e-16,
+      9.562744081674093e-07
+    ]
+  ],
+  "mass_kg": 0.014069588788261037,
+  "mesh_source_sha256": "d9ecf28b323ede64356d933d0f7b91f69848c4f6ba34b742888bbbc1c90461f0",
+  "mesh_triangles_sha256": "a5659debddfb9e85a4ae8ea9da052709213305e116d58fa891332a97bc3b3960",
+  "observed_catalog_sha256": "ff37a6e52a558fadb2a2d11fdb22844662b54b7a53ffbb8e6aa327624e9f41e7",
+  "recognition": {
+    "ambiguity_margin_deg": 1.0,
+    "continuous_axis_part": null,
+    "quaternion_order": "xyzw",
+    "rotation": "part_to_chute",
+    "symmetry_available": true,
+    "symmetry_composition": "q_part_to_chute * q_symmetry_part",
+    "symmetry_quaternions_xyzw": [
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      [
+        4.5625355806536024e-10,
+        4.562550516798686e-10,
+        0.7071067811865477,
+        -0.7071067811865475
+      ],
+      [
+        4.5625355806536035e-10,
+        4.562550516798686e-10,
+        0.7071067811865475,
+        0.7071067811865477
+      ],
+      [
+        6.45239969697013e-10,
+        6.452420819869076e-10,
+        1.0,
+        6.123233995736766e-17
+      ]
+    ],
+    "symmetry_symbol": "C4",
+    "tolerance_deg": 5.0
+  },
+  "release_distribution": {
+    "drop_height_range_mm": [
+      100,
+      100
+    ],
+    "lateral_range_mm": [
+      0,
+      0
+    ],
+    "type": "independent_uniform_center_plus_minus_spread"
+  },
+  "roadmap_sha256": null,
+  "software": {
+    "bibazu-chute-pose": "0.1.0",
+    "cadquery-ocp": "7.9.3.1.1",
+    "coacd": "1.0.14",
+    "dashas-drop-sim": "0.5.0",
+    "mujoco": "3.14.0",
+    "numpy": "2.5.3",
+    "scipy": "1.18.1",
+    "trimesh": "5.1.0"
+  },
+  "software_commit": "477ee154af6b14b17245a5e53109f02e679d1432",
+  "surface_roughness": {
+    "additional_friction": "Longitudinal traction impulse from an equivalent friction increment mu * height/ramp; duration ramp/abs(longitudinal slip); capped at slip cancellation",
+    "contact_sampling": "normal-load times longitudinal-slip-speed weighted active MuJoCo contact points",
+    "enabled": true,
+    "interpretation": "Uncalibrated stochastic contact impulses per relative sliding distance; not a fixed surface map or resolved scratch geometry. Traction strength is an equivalent friction assumption, not inferred from scratch depth alone.",
+    "minimum_sliding_speed_mm_s": 0.1,
+    "model": "longitudinal_contact_traction_v1",
+    "restitution": null,
+    "sampling_interval_s": 0.005
+  },
+  "symmetry_available": true,
+  "unknown_cluster_tolerance_deg": 5.0
+}

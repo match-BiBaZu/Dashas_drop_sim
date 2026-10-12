@@ -29,6 +29,11 @@ def test_published_pose_groups(part, expected):
         path = next(p for p in result["paths"] if (p["source"], p["target"]) == ("1", "5"))
         assert path["forward_barrier_mm"] > 1.8
         assert path["reverse_barrier_mm"] < .02
+    if part == "Dk1i":
+        for pair in (("1", "5"), ("2", "4")):
+            evidence = next(p for p in result["paths"] if (p["source"], p["target"]) == pair)
+            assert evidence["forward_barrier_mm"] == pytest.approx(.39, abs=.01)
+            assert evidence["reverse_barrier_mm"] == pytest.approx(.39, abs=.01)
 
 
 def path(a, b, angle=20, forward=.1, reverse=.1):

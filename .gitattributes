@@ -1,0 +1,3 @@
+# These handover artifacts contain SHA-256 references to exact exported bytes.
+# Preserve them across checkouts instead of applying automatic newline conversion.
+experiments/grouped_pose_study/report/** -text

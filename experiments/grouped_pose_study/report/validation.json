@@ -1,0 +1,45 @@
+{
+  "baseline": "0b3b5c5fe42e787bd47f381b1f1ac57359d5aa55",
+  "engine_fingerprint": "7928d319b149a3d4cd6b833e338788a5cb5932f8269228a7f2810ff633355081",
+  "workpieces": {
+    "Dk1i": {
+      "assessed_members": 8,
+      "assessment_complete": true,
+      "completed_unique_drops": 10000,
+      "count_conserved": true,
+      "disturbance_tests": 584,
+      "disturbances_sha256": "cd6e3912ee3776967138d5cd1a95834e305b6739ab041de66b2678e6c556714e",
+      "representative_roadmap_nodes": 6,
+      "run_directory": "results/grouped_pose_study/Dk1i/run_20261012T171001_613191Z_42",
+      "settled_trials": 9998,
+      "trials_sha256": "237957ebed37896cfe13a9529386b4b6707e75a5f18d8804b52dcd0e3c7d91f4",
+      "unassigned_settled_trials": 0
+    },
+    "Dl1a": {
+      "assessed_members": 16,
+      "assessment_complete": true,
+      "completed_unique_drops": 10000,
+      "count_conserved": true,
+      "disturbance_tests": 1168,
+      "disturbances_sha256": "3805352af356b1dd775c43709d823ce40d2ddbe255bacff96ada11b742644fe7",
+      "representative_roadmap_nodes": 5,
+      "run_directory": "results/grouped_pose_study/Dl1a/run_20261012T165104_211765Z_42",
+      "settled_trials": 9983,
+      "trials_sha256": "b8c1faf9f2ed4fec6212a029da3614ff73dc7350b880f8d09dcad565165070a5",
+      "unassigned_settled_trials": 0
+    },
+    "Qk1a": {
+      "assessed_members": 13,
+      "assessment_complete": true,
+      "completed_unique_drops": 10000,
+      "count_conserved": true,
+      "disturbance_tests": 949,
+      "disturbances_sha256": "15c27dc9b1425c899d57a676dc3de739c0e82d043a735cc790e3a7b91171bc47",
+      "representative_roadmap_nodes": 6,
+      "run_directory": "results/grouped_pose_study/Qk1a/run_20261012T163003_604007Z_42",
+      "settled_trials": 9956,
+      "trials_sha256": "22f150048a68bcb78c8ca0840e40f97b8768b11cd6d6bea077ff4865bcc3870b",
+      "unassigned_settled_trials": 0
+    }
+  }
+}

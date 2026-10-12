@@ -1,0 +1,228 @@
+{
+  "barrier_mm": 0.5,
+  "groups": [
+    [
+      "0"
+    ],
+    [
+      "1",
+      "5"
+    ],
+    [
+      "2",
+      "4"
+    ],
+    [
+      "3"
+    ],
+    [
+      "6"
+    ],
+    [
+      "7"
+    ]
+  ],
+  "interpretation": "Sampled seated shortest-rotation paths; barriers are geometric estimates, not minimum-action proofs.",
+  "max_angle_deg": 60,
+  "model": "observed-seated-geodesic-basins-v1",
+  "paths": [
+    {
+      "angle_deg": 93.83476670294341,
+      "forward_barrier_mm": null,
+      "reverse_barrier_mm": null,
+      "source": "0",
+      "target": "1"
+    },
+    {
+      "angle_deg": 90.01235939233293,
+      "forward_barrier_mm": null,
+      "reverse_barrier_mm": null,
+      "source": "0",
+      "target": "2"
+    },
+    {
+      "angle_deg": 104.45820654976382,
+      "forward_barrier_mm": null,
+      "reverse_barrier_mm": null,
+      "source": "0",
+      "target": "3"
+    },
+    {
+      "angle_deg": 93.87022920025285,
+      "forward_barrier_mm": null,
+      "reverse_barrier_mm": null,
+      "source": "0",
+      "target": "4"
+    },
+    {
+      "angle_deg": 89.97581335391078,
+      "forward_barrier_mm": null,
+      "reverse_barrier_mm": null,
+      "source": "0",
+      "target": "5"
+    },
+    {
+      "angle_deg": 179.96240786233847,
+      "forward_barrier_mm": null,
+      "reverse_barrier_mm": null,
+      "source": "0",
+      "target": "6"
+    },
+    {
+      "angle_deg": 90.02324663445668,
+      "forward_barrier_mm": null,
+      "reverse_barrier_mm": null,
+      "source": "0",
+      "target": "7"
+    },
+    {
+      "angle_deg": 179.97811924732767,
+      "forward_barrier_mm": null,
+      "reverse_barrier_mm": null,
+      "source": "1",
+      "target": "2"
+    },
+    {
+      "angle_deg": 89.93857845087983,
+      "forward_barrier_mm": null,
+      "reverse_barrier_mm": null,
+      "source": "1",
+      "target": "3"
+    },
+    {
+      "angle_deg": 179.97106774883156,
+      "forward_barrier_mm": null,
+      "reverse_barrier_mm": null,
+      "source": "1",
+      "target": "4"
+    },
+    {
+      "angle_deg": 30.044348073391877,
+      "forward_barrier_mm": 0.3873346130373978,
+      "reverse_barrier_mm": 0.3887636204733713,
+      "source": "1",
+      "target": "5"
+    },
+    {
+      "angle_deg": 93.85064290508421,
+      "forward_barrier_mm": null,
+      "reverse_barrier_mm": null,
+      "source": "1",
+      "target": "6"
+    },
+    {
+      "angle_deg": 90.04391878652065,
+      "forward_barrier_mm": null,
+      "reverse_barrier_mm": null,
+      "source": "1",
+      "target": "7"
+    },
+    {
+      "angle_deg": 93.86944098554662,
+      "forward_barrier_mm": null,
+      "reverse_barrier_mm": null,
+      "source": "2",
+      "target": "3"
+    },
+    {
+      "angle_deg": 29.941587900154527,
+      "forward_barrier_mm": 0.3953924125247106,
+      "reverse_barrier_mm": 0.38732424281376865,
+      "source": "2",
+      "target": "4"
+    },
+    {
+      "angle_deg": 179.98255875395762,
+      "forward_barrier_mm": null,
+      "reverse_barrier_mm": null,
+      "source": "2",
+      "target": "5"
+    },
+    {
+      "angle_deg": 89.96954785894928,
+      "forward_barrier_mm": null,
+      "reverse_barrier_mm": null,
+      "source": "2",
+      "target": "6"
+    },
+    {
+      "angle_deg": 93.79306381801533,
+      "forward_barrier_mm": null,
+      "reverse_barrier_mm": null,
+      "source": "2",
+      "target": "7"
+    },
+    {
+      "angle_deg": 90.08091703571797,
+      "forward_barrier_mm": null,
+      "reverse_barrier_mm": null,
+      "source": "3",
+      "target": "4"
+    },
+    {
+      "angle_deg": 93.79870922370954,
+      "forward_barrier_mm": null,
+      "reverse_barrier_mm": null,
+      "source": "3",
+      "target": "5"
+    },
+    {
+      "angle_deg": 90.0278165317837,
+      "forward_barrier_mm": null,
+      "reverse_barrier_mm": null,
+      "source": "3",
+      "target": "6"
+    },
+    {
+      "angle_deg": 179.96665988948922,
+      "forward_barrier_mm": null,
+      "reverse_barrier_mm": null,
+      "source": "3",
+      "target": "7"
+    },
+    {
+      "angle_deg": 179.97320806332203,
+      "forward_barrier_mm": null,
+      "reverse_barrier_mm": null,
+      "source": "4",
+      "target": "5"
+    },
+    {
+      "angle_deg": 93.78664638665633,
+      "forward_barrier_mm": null,
+      "reverse_barrier_mm": null,
+      "source": "4",
+      "target": "6"
+    },
+    {
+      "angle_deg": 89.93659675246691,
+      "forward_barrier_mm": null,
+      "reverse_barrier_mm": null,
+      "source": "4",
+      "target": "7"
+    },
+    {
+      "angle_deg": 90.04235056751925,
+      "forward_barrier_mm": null,
+      "reverse_barrier_mm": null,
+      "source": "5",
+      "target": "6"
+    },
+    {
+      "angle_deg": 93.89168846619505,
+      "forward_barrier_mm": null,
+      "reverse_barrier_mm": null,
+      "source": "5",
+      "target": "7"
+    },
+    {
+      "angle_deg": 104.41377910571995,
+      "forward_barrier_mm": null,
+      "reverse_barrier_mm": null,
+      "source": "6",
+      "target": "7"
+    }
+  ],
+  "review": [],
+  "sampling_step_deg": 0.1
+}

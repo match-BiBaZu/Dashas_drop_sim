@@ -6,6 +6,7 @@ Run the frozen Qk1a, Dl1a and Dk1i experiment from the simulator repository:
 .venv/Scripts/python.exe -m experiments.grouped_pose_study --prepare-only
 .venv/Scripts/python.exe -m experiments.grouped_pose_study_smoke
 .venv/Scripts/python.exe -m experiments.grouped_pose_study --trials 10000 --workers 8
+.venv/Scripts/python.exe -m experiments.grouped_pose_validate
 ```
 
 The baseline archives are exact `source/poses.json` snapshots from published
@@ -25,6 +26,9 @@ Its outputs are written inside each local run directory. Connections are generat
 only for selected representative orientations and remain untested action candidates.
 Full member references, raw drop records and disturbance records remain local;
 the committed `report/` contains compact results and representative roadmaps.
+It also contains a representative-only catalog, a companion roadmap membership
+table, the original member frequencies and retention curves, explicit Dk1i pair
+barrier evidence, and a validation receipt with full-record checksums.
 
 Grouping compares directed sampled seated-rotation barriers in equivalent lift
 millimetres, including finite or continuous CAD symmetry. Mutually reachable states

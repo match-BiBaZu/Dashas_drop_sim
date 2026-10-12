@@ -1,0 +1,513 @@
+{
+  "alpha_deg": 45,
+  "analytical_stability_evaluated": false,
+  "axis_tolerance_deg": 1.0,
+  "beta_deg": 0,
+  "catalogue_id_namespace": "input_pose_list_index",
+  "classical_metadata": {
+    "observed_pose_generation": {
+      "frequency_denominator": "all completed drop trials, including unsettled outcomes",
+      "generated_utc": "2026-10-12T16:51:01.470436+00:00",
+      "minimum_frequency_percent": 0,
+      "numbering_tie_break": "original source ID",
+      "original_source_sha256": "3fe7cc8145bf5f8bd1fcb82ab4b8e51257766bcb2fcb410a3d6c592d83a3e90d",
+      "pose_id_mapping": {
+        "Qk1a_0004": 4,
+        "Qk1a_0006": 5,
+        "Qk1a_0007": 0,
+        "Qk1a_0008": 1,
+        "Qk1a_0009": 3,
+        "Qk1a_0012": 2
+      },
+      "removed_poses": [],
+      "renumber_by_frequency": true,
+      "source_file": "representatives.json",
+      "source_sha256": "6c43006f3b84c1b4637ac27009a44abd2f0786b79dee6ddecba8c2a428a9b8c8"
+    }
+  },
+  "classification_note": "Legacy robust labels designate observed stable targets for consumer compatibility; no analytical robustness is asserted.",
+  "contact_tolerance_mm": 0.05,
+  "csa_cap_half_angle_deg": null,
+  "csa_direction_samples": null,
+  "csa_load_model": null,
+  "csa_rocking_fallback_pose_ids": [],
+  "edges": [
+    {
+      "actuation": "free_y",
+      "actuation_count": 1,
+      "axis_chute": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "axis_error_deg": 0.5266890044094248,
+      "capture_fraction": null,
+      "capture_interval_deg": null,
+      "capture_width_deg": null,
+      "directed": true,
+      "edge_id": "a0:0->1:free_y",
+      "escape_barrier_mm": null,
+      "experimental_status": "untested",
+      "geometric_score": null,
+      "saddle_angle_deg": null,
+      "settling_pose_ids": [],
+      "signed_angle_deg": 165.20066664961865,
+      "source": 0,
+      "target": 1,
+      "target_barrier_score": null,
+      "transition_kind": "actuated"
+    },
+    {
+      "actuation": "free_z",
+      "actuation_count": 1,
+      "axis_chute": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "axis_error_deg": 0.5110858664673024,
+      "capture_fraction": null,
+      "capture_interval_deg": null,
+      "capture_width_deg": null,
+      "directed": true,
+      "edge_id": "a1:0->1:free_z",
+      "escape_barrier_mm": null,
+      "experimental_status": "untested",
+      "geometric_score": null,
+      "saddle_angle_deg": null,
+      "settling_pose_ids": [],
+      "signed_angle_deg": -165.26313015636646,
+      "source": 0,
+      "target": 1,
+      "target_barrier_score": null,
+      "transition_kind": "actuated"
+    },
+    {
+      "actuation": "free_y",
+      "actuation_count": 1,
+      "axis_chute": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "axis_error_deg": 0.5266890044094248,
+      "capture_fraction": null,
+      "capture_interval_deg": null,
+      "capture_width_deg": null,
+      "directed": true,
+      "edge_id": "a2:1->0:free_y",
+      "escape_barrier_mm": null,
+      "experimental_status": "untested",
+      "geometric_score": null,
+      "saddle_angle_deg": null,
+      "settling_pose_ids": [],
+      "signed_angle_deg": -165.20066664961865,
+      "source": 1,
+      "target": 0,
+      "target_barrier_score": null,
+      "transition_kind": "actuated"
+    },
+    {
+      "actuation": "free_z",
+      "actuation_count": 1,
+      "axis_chute": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "axis_error_deg": 0.5110858664673024,
+      "capture_fraction": null,
+      "capture_interval_deg": null,
+      "capture_width_deg": null,
+      "directed": true,
+      "edge_id": "a3:1->0:free_z",
+      "escape_barrier_mm": null,
+      "experimental_status": "untested",
+      "geometric_score": null,
+      "saddle_angle_deg": null,
+      "settling_pose_ids": [],
+      "signed_angle_deg": 165.26313015636646,
+      "source": 1,
+      "target": 0,
+      "target_barrier_score": null,
+      "transition_kind": "actuated"
+    },
+    {
+      "actuation": "wall_main_pos_x",
+      "actuation_count": 1,
+      "axis_chute": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "axis_error_deg": 0.050650059113489354,
+      "capture_fraction": null,
+      "capture_interval_deg": null,
+      "capture_width_deg": null,
+      "directed": true,
+      "edge_id": "a4:2->4:wall_main_pos_x",
+      "escape_barrier_mm": null,
+      "experimental_status": "untested",
+      "geometric_score": null,
+      "saddle_angle_deg": null,
+      "settling_pose_ids": [],
+      "signed_angle_deg": 90.02137247130293,
+      "source": 2,
+      "target": 4,
+      "target_barrier_score": null,
+      "transition_kind": "actuated"
+    },
+    {
+      "actuation": "floor_main_neg_x",
+      "actuation_count": 1,
+      "axis_chute": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "axis_error_deg": 0.07109383508265948,
+      "capture_fraction": null,
+      "capture_interval_deg": null,
+      "capture_width_deg": null,
+      "directed": true,
+      "edge_id": "a5:3->5:floor_main_neg_x",
+      "escape_barrier_mm": null,
+      "experimental_status": "untested",
+      "geometric_score": null,
+      "saddle_angle_deg": null,
+      "settling_pose_ids": [],
+      "signed_angle_deg": -90.05619423844608,
+      "source": 3,
+      "target": 5,
+      "target_barrier_score": null,
+      "transition_kind": "actuated"
+    },
+    {
+      "actuation": "floor_main_neg_x",
+      "actuation_count": 1,
+      "axis_chute": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "axis_error_deg": 0.050650059113489354,
+      "capture_fraction": null,
+      "capture_interval_deg": null,
+      "capture_width_deg": null,
+      "directed": true,
+      "edge_id": "a6:4->2:floor_main_neg_x",
+      "escape_barrier_mm": null,
+      "experimental_status": "untested",
+      "geometric_score": null,
+      "saddle_angle_deg": null,
+      "settling_pose_ids": [],
+      "signed_angle_deg": -90.02137247130293,
+      "source": 4,
+      "target": 2,
+      "target_barrier_score": null,
+      "transition_kind": "actuated"
+    },
+    {
+      "actuation": "wall_main_pos_x",
+      "actuation_count": 1,
+      "axis_chute": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "axis_error_deg": 0.07109383508265948,
+      "capture_fraction": null,
+      "capture_interval_deg": null,
+      "capture_width_deg": null,
+      "directed": true,
+      "edge_id": "a7:5->3:wall_main_pos_x",
+      "escape_barrier_mm": null,
+      "experimental_status": "untested",
+      "geometric_score": null,
+      "saddle_angle_deg": null,
+      "settling_pose_ids": [],
+      "signed_angle_deg": 90.05619423844608,
+      "source": 5,
+      "target": 3,
+      "target_barrier_score": null,
+      "transition_kind": "actuated"
+    }
+  ],
+  "friction_policy": "not_evaluated",
+  "generation": {
+    "frequency_denominator": "all completed drop trials, including unsettled outcomes",
+    "generated_utc": "2026-10-12T16:51:01.470436+00:00",
+    "minimum_frequency_percent": 0,
+    "numbering_tie_break": "original source ID",
+    "original_source_sha256": "3fe7cc8145bf5f8bd1fcb82ab4b8e51257766bcb2fcb410a3d6c592d83a3e90d",
+    "pose_id_mapping": {
+      "Qk1a_0004": 4,
+      "Qk1a_0006": 5,
+      "Qk1a_0007": 0,
+      "Qk1a_0008": 1,
+      "Qk1a_0009": 3,
+      "Qk1a_0012": 2
+    },
+    "removed_poses": [],
+    "renumber_by_frequency": true,
+    "source_file": "representatives.json",
+    "source_sha256": "6c43006f3b84c1b4637ac27009a44abd2f0786b79dee6ddecba8c2a428a9b8c8"
+  },
+  "geometry_status": "provisional",
+  "group_ranking_method": "representative_group_retention_auc",
+  "main_face_area_mm2": 400.0,
+  "main_face_id": 82,
+  "main_face_ids": [
+    82,
+    83
+  ],
+  "main_face_min_span_mm": 20.0,
+  "minimum_braking_g": null,
+  "minimum_csa_score": null,
+  "node_counts": {
+    "metastable": 0,
+    "robust": 6,
+    "total": 6
+  },
+  "nodes": [
+    {
+      "cad_status": "provisional",
+      "classical_metrics": {},
+      "classification_basis": "observed_group_retention",
+      "csa_angular_clearance_deg": null,
+      "csa_applicable": null,
+      "csa_feasible_fraction": null,
+      "csa_feasible_solid_angle_sr": null,
+      "csa_stability_index": null,
+      "floor_contact_topology": "edge+point",
+      "group_members": [
+        "Qk1a_0005",
+        "Qk1a_0007"
+      ],
+      "group_stability_rank": 2,
+      "kind": "robust",
+      "main_face_on_floor": false,
+      "main_face_on_wall": false,
+      "node_id": 0,
+      "observed_count": 2317,
+      "observed_frequency_percent": 23.169999999999998,
+      "original_catalog_pose_id": 1,
+      "pose_ids": [
+        1
+      ],
+      "representative_group_retention_auc": 1.0,
+      "representative_quaternion_xyzw": [
+        -0.43141753505353847,
+        0.5010542033353976,
+        0.5606820590040954,
+        -0.4984568431461114
+      ],
+      "rocking_barrier_mm": null,
+      "source_pose_ids": [
+        "Qk1a_0007"
+      ],
+      "wall_contact_topology": "2-edge"
+    },
+    {
+      "cad_status": "provisional",
+      "classical_metrics": {},
+      "classification_basis": "observed_group_retention",
+      "csa_angular_clearance_deg": null,
+      "csa_applicable": null,
+      "csa_feasible_fraction": null,
+      "csa_feasible_solid_angle_sr": null,
+      "csa_stability_index": null,
+      "floor_contact_topology": "2-edge",
+      "group_members": [
+        "Qk1a_0008"
+      ],
+      "group_stability_rank": 4,
+      "kind": "robust",
+      "main_face_on_floor": false,
+      "main_face_on_wall": false,
+      "node_id": 1,
+      "observed_count": 2187,
+      "observed_frequency_percent": 21.87,
+      "original_catalog_pose_id": 3,
+      "pose_ids": [
+        3
+      ],
+      "representative_group_retention_auc": 1.0,
+      "representative_quaternion_xyzw": [
+        -0.43536316324985513,
+        -0.49445324355551096,
+        -0.5642388845492433,
+        -0.4976036446662548
+      ],
+      "rocking_barrier_mm": null,
+      "source_pose_ids": [
+        "Qk1a_0008"
+      ],
+      "wall_contact_topology": "edge+point"
+    },
+    {
+      "cad_status": "provisional",
+      "classical_metrics": {},
+      "classification_basis": "observed_group_retention",
+      "csa_angular_clearance_deg": null,
+      "csa_applicable": null,
+      "csa_feasible_fraction": null,
+      "csa_feasible_solid_angle_sr": null,
+      "csa_stability_index": null,
+      "floor_contact_topology": "2-edge",
+      "group_members": [
+        "Qk1a_0010",
+        "Qk1a_0011",
+        "Qk1a_0012",
+        "Qk1a_0013"
+      ],
+      "group_stability_rank": 6,
+      "kind": "robust",
+      "main_face_on_floor": false,
+      "main_face_on_wall": true,
+      "node_id": 2,
+      "observed_count": 1430,
+      "observed_frequency_percent": 14.299999999999999,
+      "original_catalog_pose_id": 5,
+      "pose_ids": [
+        5
+      ],
+      "representative_group_retention_auc": 1.0,
+      "representative_quaternion_xyzw": [
+        0.6943183058481031,
+        -0.1336895891381035,
+        0.1337501347200103,
+        0.6943774804691496
+      ],
+      "rocking_barrier_mm": null,
+      "source_pose_ids": [
+        "Qk1a_0012"
+      ],
+      "wall_contact_topology": "face"
+    },
+    {
+      "cad_status": "provisional",
+      "classical_metrics": {},
+      "classification_basis": "observed_group_retention",
+      "csa_angular_clearance_deg": null,
+      "csa_applicable": null,
+      "csa_feasible_fraction": null,
+      "csa_feasible_solid_angle_sr": null,
+      "csa_stability_index": null,
+      "floor_contact_topology": "face",
+      "group_members": [
+        "Qk1a_0009"
+      ],
+      "group_stability_rank": 5,
+      "kind": "robust",
+      "main_face_on_floor": true,
+      "main_face_on_wall": false,
+      "node_id": 3,
+      "observed_count": 1372,
+      "observed_frequency_percent": 13.719999999999999,
+      "original_catalog_pose_id": 4,
+      "pose_ids": [
+        4
+      ],
+      "representative_group_retention_auc": 1.0,
+      "representative_quaternion_xyzw": [
+        -0.0002863209031768177,
+        -8.807442847610925e-05,
+        0.1892486718963276,
+        -0.9819291473669124
+      ],
+      "rocking_barrier_mm": null,
+      "source_pose_ids": [
+        "Qk1a_0009"
+      ],
+      "wall_contact_topology": "2-edge"
+    },
+    {
+      "cad_status": "provisional",
+      "classical_metrics": {},
+      "classification_basis": "observed_group_retention",
+      "csa_angular_clearance_deg": null,
+      "csa_applicable": null,
+      "csa_feasible_fraction": null,
+      "csa_feasible_solid_angle_sr": null,
+      "csa_stability_index": null,
+      "floor_contact_topology": "face",
+      "group_members": [
+        "Qk1a_0001",
+        "Qk1a_0002",
+        "Qk1a_0003",
+        "Qk1a_0004"
+      ],
+      "group_stability_rank": 1,
+      "kind": "robust",
+      "main_face_on_floor": true,
+      "main_face_on_wall": false,
+      "node_id": 4,
+      "observed_count": 1370,
+      "observed_frequency_percent": 13.700000000000001,
+      "original_catalog_pose_id": 0,
+      "pose_ids": [
+        0
+      ],
+      "representative_group_retention_auc": 1.0,
+      "representative_quaternion_xyzw": [
+        -0.9820726408848851,
+        0.18850279715682813,
+        9.310438375785546e-05,
+        0.00012174158236794019
+      ],
+      "rocking_barrier_mm": null,
+      "source_pose_ids": [
+        "Qk1a_0004"
+      ],
+      "wall_contact_topology": "2-edge"
+    },
+    {
+      "cad_status": "provisional",
+      "classical_metrics": {},
+      "classification_basis": "observed_group_retention",
+      "csa_angular_clearance_deg": null,
+      "csa_applicable": null,
+      "csa_feasible_fraction": null,
+      "csa_feasible_solid_angle_sr": null,
+      "csa_stability_index": null,
+      "floor_contact_topology": "2-edge",
+      "group_members": [
+        "Qk1a_0006"
+      ],
+      "group_stability_rank": 3,
+      "kind": "robust",
+      "main_face_on_floor": false,
+      "main_face_on_wall": true,
+      "node_id": 5,
+      "observed_count": 1280,
+      "observed_frequency_percent": 12.8,
+      "original_catalog_pose_id": 2,
+      "pose_ids": [
+        2
+      ],
+      "representative_group_retention_auc": 1.0,
+      "representative_quaternion_xyzw": [
+        0.5853925062212411,
+        -0.3968724611739625,
+        -0.3968257410819994,
+        -0.5850958848226997
+      ],
+      "rocking_barrier_mm": null,
+      "source_pose_ids": [
+        "Qk1a_0006"
+      ],
+      "wall_contact_topology": "face"
+    }
+  ],
+  "opposite_x_min_height_mm": 25.0,
+  "part_name": "Qk1a",
+  "pose_ranking_method": "observed_frequency",
+  "robust_barrier_threshold_mm": null,
+  "robustness_method": "observed_simulation",
+  "schema_version": 1,
+  "source": "../../../../src/dashas_drop_sim/assets/catalog/Qk1a.STL",
+  "symmetry_symbol": "C4",
+  "symmetry_tolerance_mm": 0.05,
+  "unresolved_metastable_node_ids": []
+}

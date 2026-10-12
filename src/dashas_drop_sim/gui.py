@@ -399,9 +399,9 @@ class DropSimulationWindow(QMainWindow):
         self.stability_rank_table.setMinimumHeight(120)
         stability_layout.addWidget(self.stability_rank_table)
         stability_layout.addWidget(QLabel("Pose-Erhalt je Störstufe; die Störstufe entspricht einer Hubenergie."))
-        self.stability_curve_table = QTableWidget(0, 7)
+        self.stability_curve_table = QTableWidget(0, 8)
         self.stability_curve_table.setHorizontalHeaderLabels(
-            ["Pose", "Störstufe (mm)", "Energie (J)", "Erhalten", "Richtungen", "Anteil", "Vollständig"]
+            ["Pose", "Störstufe (mm)", "Energie (J)", "Erhalten", "Richtungen", "Anteil", "Vollständig", "Gruppe"]
         )
         self.stability_curve_table.horizontalHeader().setStretchLastSection(True)
         self.stability_curve_table.setMinimumHeight(180)
@@ -1275,7 +1275,7 @@ class DropSimulationWindow(QMainWindow):
             self.stability_curve_table,
             curves or [],
             ("pose_id", "energy_lift_mm", "energy_j", "retained_count",
-             "direction_count", "retention", "complete"),
+             "direction_count", "retention", "complete", "group_id"),
         )
 
     @staticmethod

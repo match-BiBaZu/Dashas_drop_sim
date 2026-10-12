@@ -1,0 +1,301 @@
+format: bibazu_pose_roadmap_handover
+schema_version: 1
+part:
+  name: Dl1a
+  mesh_source: ../../../../src/dashas_drop_sim/assets/catalog/Dl1a.STL
+  cad_status: provisional
+chute:
+  coordinate_system: right_handed
+  x: downhill
+  y: away_from_wall
+  z: away_from_floor
+  alpha_deg: 45
+  beta_deg: 0
+classification:
+  basis: observed_simulation
+  analytical_stability_evaluated: false
+  note: Legacy robust labels designate observed stable targets for consumer compatibility;
+    no analytical robustness is asserted.
+  pose_ranking_method: observed_frequency
+  robustness_method: observed_simulation
+  symmetry: C3
+  friction_policy: not_evaluated
+  robust_pose_ids:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  metastable_pose_ids: []
+  unresolved_metastable_pose_ids: []
+  main_face_ids:
+  - 1
+  - 5
+  - 12
+  main_face_min_span_mm: 9.999999523162842
+  opposite_x_min_height_mm: 25.0
+  robust_barrier_threshold_mm: null
+  minimum_csa_score: null
+  csa_cap_half_angle_deg: null
+  csa_direction_samples: null
+  csa_rocking_fallback_catalog_pose_ids: []
+  classical_metadata:
+    observed_pose_generation: &id001
+      minimum_frequency_percent: 0
+      renumber_by_frequency: true
+      frequency_denominator: all completed drop trials, including unsettled outcomes
+      numbering_tie_break: original source ID
+      source_file: representatives.json
+      source_sha256: 49a12e5e14ed709532678234d36f4281ffbe3168acc9c8d4eb3a2a9e9b362787
+      generated_utc: '2026-10-12T17:09:59.450972+00:00'
+      pose_id_mapping:
+        Dl1a_0007: 0
+        Dl1a_0006: 1
+        Dl1a_0013: 2
+        Dl1a_0003: 3
+        Dl1a_0002: 4
+      removed_poses: []
+      original_source_sha256: 87d43881f1bc67d9b7e34340db34af4564f276ed894a5caf18ed87c58452dcc6
+  group_ranking_method: representative_group_retention_auc
+poses:
+- id: 0
+  original_catalog_pose_id: 2
+  equivalent_catalog_pose_ids:
+  - 2
+  source_pose_ids:
+  - Dl1a_0007
+  stability: robust
+  planner_role: stable_target
+  classification_basis: observed_group_retention
+  orientation_quaternion_xyzw:
+  - -0.00025400552199000836
+  - 0.7071333459847642
+  - -0.0003005366468636639
+  - 0.7070801058969985
+  observed_count: 4724
+  observed_frequency_percent: 47.24
+  rocking_barrier_mm: null
+  csa_stability_index: null
+  cad_status: provisional
+  csa_feasible_fraction: null
+  csa_feasible_solid_angle_sr: null
+  csa_angular_clearance_deg: null
+  csa_applicable: null
+  contacts:
+    floor: edge
+    wall: face
+    main_face_on_floor: false
+    main_face_on_wall: true
+  group_members:
+  - Dl1a_0005
+  - Dl1a_0007
+  - Dl1a_0010
+  - Dl1a_0016
+  representative_group_retention_auc: 1.0
+  group_stability_rank: 3
+- id: 1
+  original_catalog_pose_id: 1
+  equivalent_catalog_pose_ids:
+  - 1
+  source_pose_ids:
+  - Dl1a_0006
+  stability: robust
+  planner_role: stable_target
+  classification_basis: observed_group_retention
+  orientation_quaternion_xyzw:
+  - -0.6123591233766645
+  - 0.35343697685913
+  - 0.612556582954874
+  - -0.3533737965450896
+  observed_count: 4628
+  observed_frequency_percent: 46.28
+  rocking_barrier_mm: null
+  csa_stability_index: null
+  cad_status: provisional
+  csa_feasible_fraction: null
+  csa_feasible_solid_angle_sr: null
+  csa_angular_clearance_deg: null
+  csa_applicable: null
+  contacts:
+    floor: edge
+    wall: face
+    main_face_on_floor: false
+    main_face_on_wall: true
+  group_members:
+  - Dl1a_0004
+  - Dl1a_0006
+  - Dl1a_0009
+  - Dl1a_0015
+  representative_group_retention_auc: 1.0
+  group_stability_rank: 2
+- id: 2
+  original_catalog_pose_id: 3
+  equivalent_catalog_pose_ids:
+  - 3
+  source_pose_ids:
+  - Dl1a_0013
+  stability: robust
+  planner_role: stable_target
+  classification_basis: observed_group_retention
+  orientation_quaternion_xyzw:
+  - -0.6797642914122259
+  - 0.19467645361894972
+  - -0.19452878587118266
+  - -0.6798383175393006
+  observed_count: 332
+  observed_frequency_percent: 3.32
+  rocking_barrier_mm: null
+  csa_stability_index: null
+  cad_status: provisional
+  csa_feasible_fraction: null
+  csa_feasible_solid_angle_sr: null
+  csa_angular_clearance_deg: null
+  csa_applicable: null
+  contacts:
+    floor: 2-edge
+    wall: face
+    main_face_on_floor: false
+    main_face_on_wall: false
+  group_members:
+  - Dl1a_0013
+  - Dl1a_0014
+  representative_group_retention_auc: 1.0
+  group_stability_rank: 4
+- id: 3
+  original_catalog_pose_id: 0
+  equivalent_catalog_pose_ids:
+  - 0
+  source_pose_ids:
+  - Dl1a_0003
+  stability: robust
+  planner_role: stable_target
+  classification_basis: observed_group_retention
+  orientation_quaternion_xyzw:
+  - -0.6859310182252795
+  - 0.17162297576248078
+  - 0.17135964234155326
+  - 0.6860612694238302
+  observed_count: 155
+  observed_frequency_percent: 1.55
+  rocking_barrier_mm: null
+  csa_stability_index: null
+  cad_status: provisional
+  csa_feasible_fraction: null
+  csa_feasible_solid_angle_sr: null
+  csa_angular_clearance_deg: null
+  csa_applicable: null
+  contacts:
+    floor: 2-edge
+    wall: face
+    main_face_on_floor: false
+    main_face_on_wall: false
+  group_members:
+  - Dl1a_0003
+  - Dl1a_0008
+  representative_group_retention_auc: 1.0
+  group_stability_rank: 1
+- id: 4
+  original_catalog_pose_id: 4
+  equivalent_catalog_pose_ids:
+  - 4
+  source_pose_ids:
+  - Dl1a_0002
+  stability: robust
+  planner_role: stable_target
+  classification_basis: observed_group_retention
+  orientation_quaternion_xyzw:
+  - 0.6952242884321711
+  - -0.7187928672767168
+  - 5.309154920196678e-06
+  - 5.1941414034889486e-05
+  observed_count: 113
+  observed_frequency_percent: 1.13
+  rocking_barrier_mm: null
+  csa_stability_index: null
+  cad_status: provisional
+  csa_feasible_fraction: null
+  csa_feasible_solid_angle_sr: null
+  csa_angular_clearance_deg: null
+  csa_applicable: null
+  contacts:
+    floor: face
+    wall: 2-edge
+    main_face_on_floor: false
+    main_face_on_wall: false
+  group_members:
+  - Dl1a_0001
+  - Dl1a_0002
+  representative_group_retention_auc: 0.9843750000000001
+  group_stability_rank: 5
+transitions:
+- id: a0:0->1:free_y
+  from_pose: 0
+  to_pose: 1
+  directed: true
+  type: actuated
+  action:
+    name: free_y
+    axis: y
+    axis_vector_chute:
+    - 0.0
+    - 1.0
+    - 0.0
+    direction: negative
+    commanded_angle_deg: -179.9930117451931
+    impulse_cost: 1
+    surface_requirement: null
+    additional_requirement: null
+  capture:
+    interval_deg: null
+    width_deg: null
+    fraction: null
+  geometry:
+    geometric_score: null
+    target_barrier_score: null
+    passive_escape_barrier_mm: null
+    passive_saddle_angle_deg: null
+    axis_error_deg: 0.011829181473738836
+    passive_settling_via_catalog_pose_ids: []
+  experimental:
+    status: untested
+    trials: null
+    successes: null
+    empirical_success_rate: null
+    difficulty_rating: null
+    notes: ''
+- id: a1:1->0:free_y
+  from_pose: 1
+  to_pose: 0
+  directed: true
+  type: actuated
+  action:
+    name: free_y
+    axis: y
+    axis_vector_chute:
+    - 0.0
+    - 1.0
+    - 0.0
+    direction: positive
+    commanded_angle_deg: 179.9930117451931
+    impulse_cost: 1
+    surface_requirement: null
+    additional_requirement: null
+  capture:
+    interval_deg: null
+    width_deg: null
+    fraction: null
+  geometry:
+    geometric_score: null
+    target_barrier_score: null
+    passive_escape_barrier_mm: null
+    passive_saddle_angle_deg: null
+    axis_error_deg: 0.011829181473738836
+    passive_settling_via_catalog_pose_ids: []
+  experimental:
+    status: untested
+    trials: null
+    successes: null
+    empirical_success_rate: null
+    difficulty_rating: null
+    notes: ''
+generation: *id001

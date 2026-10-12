@@ -1,0 +1,459 @@
+{
+  "assessment_complete": true,
+  "completed_trials": 10000,
+  "frequency_denominator": "all completed drop trials, including unsettled outcomes",
+  "geometry": {
+    "stl": "../../../../src/dashas_drop_sim/assets/catalog/Dk1i.STL",
+    "stl_sha256": "3da2610e5110cf3be1897606d191a245f3ffab9e33fad9130fea6cab1fc17c48"
+  },
+  "grouping": {
+    "barrier_mm": 0.5,
+    "groups": [
+      [
+        "Dk1i_0001"
+      ],
+      [
+        "Dk1i_0002",
+        "Dk1i_0004"
+      ],
+      [
+        "Dk1i_0003",
+        "Dk1i_0005"
+      ],
+      [
+        "Dk1i_0006"
+      ],
+      [
+        "Dk1i_0007"
+      ],
+      [
+        "Dk1i_0008"
+      ]
+    ],
+    "interpretation": "Sampled seated shortest-rotation paths; barriers are geometric estimates, not minimum-action proofs.",
+    "max_angle_deg": 60,
+    "model": "observed-seated-geodesic-basins-v1",
+    "paths": [
+      {
+        "angle_deg": 93.85064290508421,
+        "forward_barrier_mm": null,
+        "reverse_barrier_mm": null,
+        "source": "Dk1i_0001",
+        "target": "Dk1i_0002"
+      },
+      {
+        "angle_deg": 93.78664638665633,
+        "forward_barrier_mm": null,
+        "reverse_barrier_mm": null,
+        "source": "Dk1i_0001",
+        "target": "Dk1i_0003"
+      },
+      {
+        "angle_deg": 90.04235056751921,
+        "forward_barrier_mm": null,
+        "reverse_barrier_mm": null,
+        "source": "Dk1i_0001",
+        "target": "Dk1i_0004"
+      },
+      {
+        "angle_deg": 89.96954785894928,
+        "forward_barrier_mm": null,
+        "reverse_barrier_mm": null,
+        "source": "Dk1i_0001",
+        "target": "Dk1i_0005"
+      },
+      {
+        "angle_deg": 90.0278165317837,
+        "forward_barrier_mm": null,
+        "reverse_barrier_mm": null,
+        "source": "Dk1i_0001",
+        "target": "Dk1i_0006"
+      },
+      {
+        "angle_deg": 179.96240786233844,
+        "forward_barrier_mm": null,
+        "reverse_barrier_mm": null,
+        "source": "Dk1i_0001",
+        "target": "Dk1i_0007"
+      },
+      {
+        "angle_deg": 104.41377910571995,
+        "forward_barrier_mm": null,
+        "reverse_barrier_mm": null,
+        "source": "Dk1i_0001",
+        "target": "Dk1i_0008"
+      },
+      {
+        "angle_deg": 179.97106774883156,
+        "forward_barrier_mm": null,
+        "reverse_barrier_mm": null,
+        "source": "Dk1i_0002",
+        "target": "Dk1i_0003"
+      },
+      {
+        "angle_deg": 30.044348073391877,
+        "forward_barrier_mm": 0.3873346130373978,
+        "reverse_barrier_mm": 0.3887636204733713,
+        "source": "Dk1i_0002",
+        "target": "Dk1i_0004"
+      },
+      {
+        "angle_deg": 179.97811924732767,
+        "forward_barrier_mm": null,
+        "reverse_barrier_mm": null,
+        "source": "Dk1i_0002",
+        "target": "Dk1i_0005"
+      },
+      {
+        "angle_deg": 89.93857845087983,
+        "forward_barrier_mm": null,
+        "reverse_barrier_mm": null,
+        "source": "Dk1i_0002",
+        "target": "Dk1i_0006"
+      },
+      {
+        "angle_deg": 93.8347667029434,
+        "forward_barrier_mm": null,
+        "reverse_barrier_mm": null,
+        "source": "Dk1i_0002",
+        "target": "Dk1i_0007"
+      },
+      {
+        "angle_deg": 90.04391878652065,
+        "forward_barrier_mm": null,
+        "reverse_barrier_mm": null,
+        "source": "Dk1i_0002",
+        "target": "Dk1i_0008"
+      },
+      {
+        "angle_deg": 179.97320806332203,
+        "forward_barrier_mm": null,
+        "reverse_barrier_mm": null,
+        "source": "Dk1i_0003",
+        "target": "Dk1i_0004"
+      },
+      {
+        "angle_deg": 29.941587900154463,
+        "forward_barrier_mm": 0.387324378610991,
+        "reverse_barrier_mm": 0.39539165250902464,
+        "source": "Dk1i_0003",
+        "target": "Dk1i_0005"
+      },
+      {
+        "angle_deg": 90.08091703571796,
+        "forward_barrier_mm": null,
+        "reverse_barrier_mm": null,
+        "source": "Dk1i_0003",
+        "target": "Dk1i_0006"
+      },
+      {
+        "angle_deg": 93.87022920025284,
+        "forward_barrier_mm": null,
+        "reverse_barrier_mm": null,
+        "source": "Dk1i_0003",
+        "target": "Dk1i_0007"
+      },
+      {
+        "angle_deg": 89.93659675246691,
+        "forward_barrier_mm": null,
+        "reverse_barrier_mm": null,
+        "source": "Dk1i_0003",
+        "target": "Dk1i_0008"
+      },
+      {
+        "angle_deg": 179.9825587539576,
+        "forward_barrier_mm": null,
+        "reverse_barrier_mm": null,
+        "source": "Dk1i_0004",
+        "target": "Dk1i_0005"
+      },
+      {
+        "angle_deg": 93.79870922370954,
+        "forward_barrier_mm": null,
+        "reverse_barrier_mm": null,
+        "source": "Dk1i_0004",
+        "target": "Dk1i_0006"
+      },
+      {
+        "angle_deg": 89.97581335391078,
+        "forward_barrier_mm": null,
+        "reverse_barrier_mm": null,
+        "source": "Dk1i_0004",
+        "target": "Dk1i_0007"
+      },
+      {
+        "angle_deg": 93.89168846619505,
+        "forward_barrier_mm": null,
+        "reverse_barrier_mm": null,
+        "source": "Dk1i_0004",
+        "target": "Dk1i_0008"
+      },
+      {
+        "angle_deg": 93.86944098554662,
+        "forward_barrier_mm": null,
+        "reverse_barrier_mm": null,
+        "source": "Dk1i_0005",
+        "target": "Dk1i_0006"
+      },
+      {
+        "angle_deg": 90.01235939233293,
+        "forward_barrier_mm": null,
+        "reverse_barrier_mm": null,
+        "source": "Dk1i_0005",
+        "target": "Dk1i_0007"
+      },
+      {
+        "angle_deg": 93.79306381801533,
+        "forward_barrier_mm": null,
+        "reverse_barrier_mm": null,
+        "source": "Dk1i_0005",
+        "target": "Dk1i_0008"
+      },
+      {
+        "angle_deg": 104.45820654976379,
+        "forward_barrier_mm": null,
+        "reverse_barrier_mm": null,
+        "source": "Dk1i_0006",
+        "target": "Dk1i_0007"
+      },
+      {
+        "angle_deg": 179.96665988948922,
+        "forward_barrier_mm": null,
+        "reverse_barrier_mm": null,
+        "source": "Dk1i_0006",
+        "target": "Dk1i_0008"
+      },
+      {
+        "angle_deg": 90.02324663445668,
+        "forward_barrier_mm": null,
+        "reverse_barrier_mm": null,
+        "source": "Dk1i_0007",
+        "target": "Dk1i_0008"
+      }
+    ],
+    "review": [],
+    "sampling_step_deg": 0.1
+  },
+  "poses": [
+    {
+      "count": 746,
+      "frequency_percent": 7.46,
+      "group_id": "group_000",
+      "group_members": [
+        "Dk1i_0001"
+      ],
+      "id": "Dk1i_0001",
+      "position_com_chute_mm": [
+        480.01901362548773,
+        5.780242965358695,
+        17.162210873134743
+      ],
+      "quaternion_xyzw": [
+        -0.8658216082954988,
+        -0.5003526103334001,
+        0.00043660933198735874,
+        -0.00013158054473749736
+      ],
+      "reference_quaternions_xyzw": [
+        [
+          -0.8658216082954988,
+          -0.5003526103334001,
+          0.00043660933198735874,
+          -0.00013158054473749736
+        ]
+      ],
+      "representative_retention_auc": 1.0,
+      "retention_auc": 1.0,
+      "source_trial": 9
+    },
+    {
+      "count": 2691,
+      "frequency_percent": 26.91,
+      "group_id": "group_001",
+      "group_members": [
+        "Dk1i_0002",
+        "Dk1i_0004"
+      ],
+      "id": "Dk1i_0002",
+      "position_com_chute_mm": [
+        479.6207948900969,
+        10.015166359275836,
+        5.7759144858058855
+      ],
+      "quaternion_xyzw": [
+        -0.49986690264290873,
+        -0.5002631516316931,
+        -0.4999837542323609,
+        -0.4998860912902304
+      ],
+      "reference_quaternions_xyzw": [
+        [
+          -0.49986690264290873,
+          -0.5002631516316931,
+          -0.4999837542323609,
+          -0.4998860912902304
+        ]
+      ],
+      "representative_retention_auc": 1.0,
+      "retention_auc": 1.0,
+      "source_trial": 13
+    },
+    {
+      "count": 2768,
+      "frequency_percent": 27.68,
+      "group_id": "group_002",
+      "group_members": [
+        "Dk1i_0003",
+        "Dk1i_0005"
+      ],
+      "id": "Dk1i_0005",
+      "position_com_chute_mm": [
+        479.4024929683439,
+        5.785039049794999,
+        9.99631575885914
+      ],
+      "quaternion_xyzw": [
+        -0.6122375118985933,
+        0.35372140137908314,
+        0.6122514722332377,
+        -0.35382839623024936
+      ],
+      "reference_quaternions_xyzw": [
+        [
+          -0.6122375118985933,
+          0.35372140137908314,
+          0.6122514722332377,
+          -0.35382839623024936
+        ]
+      ],
+      "representative_retention_auc": 1.0,
+      "retention_auc": 1.0,
+      "source_trial": 2
+    },
+    {
+      "count": 1439,
+      "frequency_percent": 14.39,
+      "group_id": "group_003",
+      "group_members": [
+        "Dk1i_0006"
+      ],
+      "id": "Dk1i_0006",
+      "position_com_chute_mm": [
+        479.6233706074376,
+        12.839013185508758,
+        5.771639543666288
+      ],
+      "quaternion_xyzw": [
+        0.6125313338989203,
+        0.3534052347375489,
+        0.35369567154400894,
+        -0.6122168545402356
+      ],
+      "reference_quaternions_xyzw": [
+        [
+          0.6125313338989203,
+          0.3534052347375489,
+          0.35369567154400894,
+          -0.6122168545402356
+        ]
+      ],
+      "representative_retention_auc": 1.0,
+      "retention_auc": 1.0,
+      "source_trial": 24
+    },
+    {
+      "count": 1644,
+      "frequency_percent": 16.439999999999998,
+      "group_id": "group_004",
+      "group_members": [
+        "Dk1i_0007"
+      ],
+      "id": "Dk1i_0007",
+      "position_com_chute_mm": [
+        479.60739763870146,
+        5.779232651226434,
+        12.835123591210158
+      ],
+      "quaternion_xyzw": [
+        4.4793663711517606e-05,
+        -0.00015419363918905968,
+        -1.635806865531165e-05,
+        -0.9999999869751314
+      ],
+      "reference_quaternions_xyzw": [
+        [
+          4.4793663711517606e-05,
+          -0.00015419363918905968,
+          -1.635806865531165e-05,
+          -0.9999999869751314
+        ]
+      ],
+      "representative_retention_auc": 1.0,
+      "retention_auc": 1.0,
+      "source_trial": 0
+    },
+    {
+      "count": 710,
+      "frequency_percent": 7.1,
+      "group_id": "group_005",
+      "group_members": [
+        "Dk1i_0008"
+      ],
+      "id": "Dk1i_0008",
+      "position_com_chute_mm": [
+        479.9788934245541,
+        17.163732311393566,
+        5.778304295797981
+      ],
+      "quaternion_xyzw": [
+        0.7072184021922552,
+        0.00022984820582373438,
+        -0.00042259864410714825,
+        0.7069949788936425
+      ],
+      "reference_quaternions_xyzw": [
+        [
+          0.7072184021922552,
+          0.00022984820582373438,
+          -0.00042259864410714825,
+          0.7069949788936425
+        ]
+      ],
+      "representative_retention_auc": 1.0,
+      "retention_auc": 1.0,
+      "source_trial": 8
+    }
+  ],
+  "recognition": {
+    "ambiguity_margin_deg": 1.0,
+    "continuous_axis_part": null,
+    "quaternion_order": "xyzw",
+    "rotation": "part_to_chute",
+    "symmetry_available": true,
+    "symmetry_composition": "q_part_to_chute * q_symmetry_part",
+    "symmetry_quaternions_xyzw": [
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      [
+        -1.2744863806346206e-09,
+        1.4328305438569656e-08,
+        0.8660254037844385,
+        -0.5000000000000002
+      ],
+      [
+        -1.2744863806346204e-09,
+        1.4328305438569656e-08,
+        0.8660254037844387,
+        0.49999999999999983
+      ]
+    ],
+    "symmetry_symbol": "C3",
+    "tolerance_deg": 5.0
+  },
+  "schema_version": 1,
+  "workpiece": "Dk1i"
+}

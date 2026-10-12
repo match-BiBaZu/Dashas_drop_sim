@@ -1,0 +1,122 @@
+{
+  "belt_speed_variation": {
+    "control_point_clock": "elapsed time from start of observation (after reseating for stability trials)",
+    "control_point_interval_s": 0.2,
+    "enabled": true,
+    "interpretation": "Uniform random speed targets joined by smooth cosine transitions; forces arise from MuJoCo contact friction, not direct body kicks.",
+    "model": "cosine_interpolated_uniform_speed_v1",
+    "speed_range_mm_s": [
+      97,
+      103
+    ]
+  },
+  "catalog_mesh_path": "C:\\Users\\Administrator\\Documents\\Dashas_ws\\Dashas_drop_sim\\src\\dashas_drop_sim\\assets\\catalog\\Dk1i.STL",
+  "catalog_symmetry": "C3",
+  "catalogue_cache_hit": false,
+  "center_mass_source_mm": [
+    9.999999988423113,
+    5.773503115788499,
+    12.83629488976851
+  ],
+  "classification_ambiguity_margin_deg": 1.0,
+  "classification_tolerance_deg": 5.0,
+  "collision_quality": {
+    "coacd_threshold_mm": 0.5,
+    "collision_bounds_max_abs_error_mm": 2.9802322762395583e-07,
+    "collision_part_count": 20,
+    "collision_summed_part_volume_mm3": 3668.846352446097,
+    "collision_summed_volume_relative_error": 0.011615129365201572,
+    "method": "coacd",
+    "note": "Part volumes are summed; overlapping convex parts are not unioned.",
+    "source_convexity_volume_gap_fraction": 0.30203715492716104,
+    "source_hull_volume_mm3": 5196.1526870727575,
+    "source_volume_mm3": 3626.721512902179
+  },
+  "created_utc": "2026-10-12T17:10:21.768261+00:00",
+  "inertia_com_kg_m2": [
+    [
+      4.116821755995805e-07,
+      -1.0764995677163823e-16,
+      3.458926454186439e-16
+    ],
+    [
+      -1.0764995677163823e-16,
+      4.116821654395243e-07,
+      -3.8886686612386256e-15
+    ],
+    [
+      3.458926454186439e-16,
+      -3.8886686612386256e-15,
+      1.766448936149318e-07
+    ]
+  ],
+  "mass_kg": 0.004170729739837504,
+  "mesh_source_sha256": "3da2610e5110cf3be1897606d191a245f3ffab9e33fad9130fea6cab1fc17c48",
+  "mesh_triangles_sha256": "c69bbf61dc904460a5d63dd143859c90ea90609612e2363dd3fdb8a56fc21139",
+  "observed_catalog_sha256": "c24da7418bcc50d82d3dd55a8fa76b97aef115e001e726fd6c2285dc7c4a6a75",
+  "recognition": {
+    "ambiguity_margin_deg": 1.0,
+    "continuous_axis_part": null,
+    "quaternion_order": "xyzw",
+    "rotation": "part_to_chute",
+    "symmetry_available": true,
+    "symmetry_composition": "q_part_to_chute * q_symmetry_part",
+    "symmetry_quaternions_xyzw": [
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      [
+        -1.2744863806346206e-09,
+        1.4328305438569656e-08,
+        0.8660254037844385,
+        -0.5000000000000002
+      ],
+      [
+        -1.2744863806346204e-09,
+        1.4328305438569656e-08,
+        0.8660254037844387,
+        0.49999999999999983
+      ]
+    ],
+    "symmetry_symbol": "C3",
+    "tolerance_deg": 5.0
+  },
+  "release_distribution": {
+    "drop_height_range_mm": [
+      100,
+      100
+    ],
+    "lateral_range_mm": [
+      0,
+      0
+    ],
+    "type": "independent_uniform_center_plus_minus_spread"
+  },
+  "roadmap_sha256": null,
+  "software": {
+    "bibazu-chute-pose": "0.1.0",
+    "cadquery-ocp": "7.9.3.1.1",
+    "coacd": "1.0.14",
+    "dashas-drop-sim": "0.5.0",
+    "mujoco": "3.14.0",
+    "numpy": "2.5.3",
+    "scipy": "1.18.1",
+    "trimesh": "5.1.0"
+  },
+  "software_commit": "477ee154af6b14b17245a5e53109f02e679d1432",
+  "surface_roughness": {
+    "additional_friction": "Longitudinal traction impulse from an equivalent friction increment mu * height/ramp; duration ramp/abs(longitudinal slip); capped at slip cancellation",
+    "contact_sampling": "normal-load times longitudinal-slip-speed weighted active MuJoCo contact points",
+    "enabled": true,
+    "interpretation": "Uncalibrated stochastic contact impulses per relative sliding distance; not a fixed surface map or resolved scratch geometry. Traction strength is an equivalent friction assumption, not inferred from scratch depth alone.",
+    "minimum_sliding_speed_mm_s": 0.1,
+    "model": "longitudinal_contact_traction_v1",
+    "restitution": null,
+    "sampling_interval_s": 0.005
+  },
+  "symmetry_available": true,
+  "unknown_cluster_tolerance_deg": 5.0
+}
