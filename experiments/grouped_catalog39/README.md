@@ -18,7 +18,10 @@ Use `--pose-repo` and `--roadmap-repo` to supply alternative clean checkouts.
 .venv/Scripts/python.exe -m experiments.grouped_catalog39 --prepare-only
 .venv/Scripts/python.exe -m pytest -q --basetemp .pytest_tmp_grouped39
 .venv/Scripts/python.exe -m experiments.grouped_pose_study_smoke
-.venv/Scripts/python.exe -m experiments.grouped_catalog39 --publish --concurrent-workpieces 3
+$env:OPENBLAS_NUM_THREADS = '1'
+$env:MKL_NUM_THREADS = '1'
+$env:NUMEXPR_NUM_THREADS = '1'
+.venv/Scripts/python.exe -m experiments.grouped_catalog39 --publish
 .venv/Scripts/python.exe -m experiments.grouped_catalog39 --audit-only
 ```
 
@@ -43,6 +46,8 @@ stay uncompressed so interruptions can resume directly.
 same eight-worker setting. Separate subprocesses and per-workpiece `job.json`
 journals isolate physics and checkpoints. The coordinator serializes exports
 and publication. The default is one workpiece; choose 1 or 2 on smaller hosts.
+Child processes cap BLAS threads at one to avoid nested thread allocations.
+Interrupted independent journals are also adopted by the sequential command.
 
 The roadmap merge was resolved using complete published component sets,
 retaining both parent histories. Its backup is outside Git in the workspace's

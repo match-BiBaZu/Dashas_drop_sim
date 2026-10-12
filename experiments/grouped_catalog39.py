@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 import gzip
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -258,6 +259,7 @@ def simulation_process(part):
     with (logs / f"{part}.log").open("ab") as stream:
         result = subprocess.run([sys.executable, "-m", "experiments.grouped_catalog39", "--simulate-only", part],
                                 cwd=ROOT, stdout=stream, stderr=subprocess.STDOUT,
+                                env={**os.environ, "OPENBLAS_NUM_THREADS": "1", "MKL_NUM_THREADS": "1", "NUMEXPR_NUM_THREADS": "1"},
                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     if result.returncode:
         raise RuntimeError(f"Simulation failed for {part}; see {logs / (part + '.log')}")
@@ -282,6 +284,16 @@ def main():
     provenance = prepare(args.pose_repo, args.roadmap_repo)
     study_path = OUTPUT / "study.json"
     study = read(study_path) if study_path.is_file() else {"workpieces": {}, "provenance": provenance}
+    for journal in OUTPUT.glob("*/job.json"):
+        part = journal.parent.name
+        record = read(journal)
+        if part not in provenance["workpieces"] or study["workpieces"].get(part, {}).get("status") == "complete":
+            continue
+        cfg = _config(SPEC / "configs" / f"{part}.json")
+        cfg.validate()
+        if record["signature"] != signature(cfg):
+            raise ValueError(f"Independent workpiece journal configuration changed: {part}")
+        study["workpieces"][part] = record
     adopt_completed(study, provenance)
     _write_json(study_path, study)
     sys.path.insert(0, str(args.roadmap_repo / "src"))
@@ -307,7 +319,12 @@ def main():
             for future in as_completed(futures):
                 part = futures[future]
                 study = read(study_path)
-                study["workpieces"][part] = future.result()
+                try:
+                    study["workpieces"][part] = future.result()
+                except BaseException:
+                    for pending_future in futures:
+                        pending_future.cancel()
+                    raise
                 _write_json(study_path, study)
                 # Serialize exports and Git publication in the coordinator. Workers
                 # only mutate their own physical run and independent journal.
