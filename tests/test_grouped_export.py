@@ -10,7 +10,7 @@ import yaml
 
 from dashas_drop_sim.catalog_export import recognize_pose, sha256
 from dashas_drop_sim.grouped_export import (archive_completed_run, audit_run, export_grouped_poses, read,
-                                           verify_inventory)
+                                           verify_inventory, export_grouped_roadmap)
 from dashas_drop_sim.runner import _write_json, _write_jsonl, _write_csv
 
 
@@ -127,3 +127,31 @@ def test_completed_raw_data_archive_is_lossless_and_remains_auditable(grouped_ru
     assert archive_completed_run(run, run.parent) == read(run / "archive.json")
     with pytest.raises(ValueError, match="inside"):
         archive_completed_run(run, run / "other")
+
+
+def test_no_eligible_roadmap_replaces_stale_edges_and_stays_discoverable(grouped_run, monkeypatch):
+    run, repo, baseline, registry, cad = grouped_run
+    engine = Path(__file__).resolve().parents[2] / "BiBaZu_StableComponentenRoadmaps_grouped/src"
+    if engine.is_dir():
+        monkeypatch.syspath_prepend(str(engine))
+    else:
+        pytest.importorskip("bibazu_stable_roadmaps")
+    from bibazu_stable_roadmaps.inputs import discover_sources
+    groups = read(run / "groups.json")
+    for group in groups["groups"]:
+        group["retained_by_frequency"] = False
+    _write_json(run / "groups.json", groups)
+    export_grouped_poses(run, repo, baseline, registry, cad_dir=cad, expected_trials=4)
+    roadmaps = repo.parent / "roadmaps"
+    stale = roadmaps / "Cube"
+    stale.mkdir(parents=True)
+    (stale / "Cube_roadmap.json").write_text('{"nodes": [0], "edges": [1]}')
+    manifest = export_grouped_roadmap(repo / "Cube/poses.json", roadmaps)
+    assert manifest["status"] == "complete_no_eligible_groups"
+    assert manifest["pose_count"] == manifest["transition_count"] == 0
+    assert not (stale / "Cube_roadmap.json").exists()
+    assert "4 drops" in (stale / "README.md").read_text()
+    assert discover_sources(repo) == [repo / "Cube/poses.json"]
+    assert read(stale / "source/config.json")["observed_catalog_path"] == "original_observations.json"
+    assert (stale / "source/original_observations.json").is_file()
+    verify_inventory(stale)

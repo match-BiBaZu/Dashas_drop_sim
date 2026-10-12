@@ -357,7 +357,7 @@ def export_grouped_roadmap(source, repository, *, provenance=None, progress=lamb
                                "minimum_frequency_percent": 0, "grouping_minimum_frequency_percent": 1,
                                "renumber_by_frequency": True, "generated_utc": read(source.parent / "manifest.json").get("created_utc", ""),
                                "status": "complete_no_eligible_groups", "grouped_export": True, "provenance": provenance or {}}
-            (staged / "README.md").write_text(f"# {part}: no eligible groups\n\n10,000 drops completed. No groups meet the 1% cutoff; there is no current roadmap.\n", encoding="utf-8")
+            (staged / "README.md").write_text(f"# {part}: no eligible groups\n\n{catalogue['completed_trials']:,} drops completed. No groups meet the 1% cutoff; there is no current roadmap.\n", encoding="utf-8")
         _write_csv(staged / "membership.csv", ["roadmap_pose_id", "representative_source_pose_id", "source_pose_id"], rows)
         for name in ("groups.json", "membership.csv", "group_stability.csv", "grouping_geometry.json", "validation.json",
                      "original_observations.json", "original_pose_registry.json"):
