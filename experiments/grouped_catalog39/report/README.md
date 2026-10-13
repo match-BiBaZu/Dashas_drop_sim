@@ -1,6 +1,6 @@
 # Grouped drop simulation: all 39 workpieces
 
-Completed and validated: **4/39** workpieces. Each completed workpiece has 10,000 drops; member disturbance tests are additional.
+Completed and validated: **39/39** workpieces. Each completed workpiece has 10,000 drops; member disturbance tests are additional.
 
 All workpieces use identical simulation settings, a 0.5 mm equivalent-lift grouping barrier, a 60° diameter guard, and a 1% cutoff after aggregation. Representatives are selected using complete member group-retention curves.
 
@@ -9,44 +9,44 @@ Qk1a, Dl1a, and Dk1i reuse the previously audited grouped runs. Full raw trial d
 | Workpiece | Status | Settled | Source poses | Eligible groups | Disturbance tests | Roadmap connections |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
 | [Df1a](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Df1a/README.md) | Complete | 9997 | 7 | 4 | 511 | 6 |
-| Df2i | running | — | — | — | — | — |
-| Df4a | running | — | — | — | — | — |
+| [Df2i](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Df2i/README.md) | Complete | 9996 | 9 | 6 | 657 | 22 |
+| [Df4a](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Df4a/README.md) | Complete | 9999 | 20 | 12 | 1460 | 42 |
 | [Dk1i](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Dk1i/README.md) | Complete | 9998 | 8 | 6 | 584 | 16 |
-| Dk2a | running | — | — | — | — | — |
-| Dk4i | running | — | — | — | — | — |
+| [Dk2a](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Dk2a/README.md) | Complete | 9845 | 17 | 12 | 1241 | 56 |
+| [Dk4i](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Dk4i/README.md) | Complete | 9999 | 24 | 18 | 1752 | 80 |
 | [Dl1a](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Dl1a/README.md) | Complete | 9983 | 16 | 5 | 1168 | 2 |
-| Dl2i | running | — | — | — | — | — |
-| Dl4a | running | — | — | — | — | — |
-| Kf1i | pending | — | — | — | — | — |
-| Kf2a | pending | — | — | — | — | — |
-| Kf4i | pending | — | — | — | — | — |
-| Kk1a | pending | — | — | — | — | — |
-| Kk2i | pending | — | — | — | — | — |
-| Kk4a | pending | — | — | — | — | — |
-| Kl1i | pending | — | — | — | — | — |
-| Kl2a | pending | — | — | — | — | — |
-| Kl4i | pending | — | — | — | — | — |
-| Qf1i | pending | — | — | — | — | — |
-| Qf2a | pending | — | — | — | — | — |
-| Qf4i | pending | — | — | — | — | — |
+| [Dl2i](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Dl2i/README.md) | Complete | 9965 | 19 | 6 | 1387 | 21 |
+| [Dl4a](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Dl4a/README.md) | Complete | 9973 | 29 | 6 | 2117 | 10 |
+| [Kf1i](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Kf1i/README.md) | Complete | 0 | 0 | 0 | 0 | 0 |
+| [Kf2a](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Kf2a/README.md) | Complete | 7584 | 6 | 3 | 438 | 2 |
+| [Kf4i](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Kf4i/README.md) | Complete | 1333 | 35 | 3 | 2555 | 2 |
+| [Kk1a](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Kk1a/README.md) | Complete | 2887 | 3 | 2 | 219 | 4 |
+| [Kk2i](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Kk2i/README.md) | Complete | 8448 | 31 | 20 | 2263 | 22 |
+| [Kk4a](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Kk4a/README.md) | Complete | 7726 | 121 | 4 | 8833 | 2 |
+| [Kl1i](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Kl1i/README.md) | Complete | 9333 | 2 | 2 | 146 | 4 |
+| [Kl2a](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Kl2a/README.md) | Complete | 9912 | 27 | 16 | 1971 | 23 |
+| [Kl4i](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Kl4i/README.md) | Complete | 9620 | 41 | 30 | 2993 | 20 |
+| [Qf1i](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Qf1i/README.md) | Complete | 9870 | 13 | 4 | 949 | 13 |
+| [Qf2a](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Qf2a/README.md) | Complete | 9829 | 24 | 10 | 1752 | 62 |
+| [Qf4i](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Qf4i/README.md) | Complete | 9835 | 29 | 16 | 2117 | 112 |
 | [Qk1a](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Qk1a/README.md) | Complete | 9956 | 13 | 6 | 949 | 8 |
-| Qk2i | pending | — | — | — | — | — |
-| Qk4a | pending | — | — | — | — | — |
-| Ql1i | pending | — | — | — | — | — |
-| Ql2a | pending | — | — | — | — | — |
-| Ql4i | pending | — | — | — | — | — |
-| Rf1a | pending | — | — | — | — | — |
-| Rf2i | pending | — | — | — | — | — |
-| Rf3a | pending | — | — | — | — | — |
-| Rf4i | pending | — | — | — | — | — |
-| Rk1a | pending | — | — | — | — | — |
-| Rk2i | pending | — | — | — | — | — |
-| Rk3a | pending | — | — | — | — | — |
-| Rk4i | pending | — | — | — | — | — |
-| Rl1a | pending | — | — | — | — | — |
-| Rl2i | pending | — | — | — | — | — |
-| Rl3a | pending | — | — | — | — | — |
-| Rl4i | pending | — | — | — | — | — |
+| [Qk2i](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Qk2i/README.md) | Complete | 10000 | 15 | 13 | 1095 | 63 |
+| [Qk4a](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Qk4a/README.md) | Complete | 9997 | 26 | 24 | 1898 | 157 |
+| [Ql1i](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Ql1i/README.md) | Complete | 9985 | 6 | 5 | 438 | 21 |
+| [Ql2a](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Ql2a/README.md) | Complete | 9942 | 19 | 8 | 1387 | 39 |
+| [Ql4i](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Ql4i/README.md) | Complete | 9979 | 24 | 12 | 1752 | 68 |
+| [Rf1a](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Rf1a/README.md) | Complete | 9963 | 25 | 15 | 1825 | 56 |
+| [Rf2i](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Rf2i/README.md) | Complete | 9839 | 19 | 8 | 1387 | 45 |
+| [Rf3a](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Rf3a/README.md) | Complete | 9965 | 19 | 9 | 1387 | 48 |
+| [Rf4i](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Rf4i/README.md) | Complete | 9885 | 27 | 16 | 1971 | 112 |
+| [Rk1a](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Rk1a/README.md) | Complete | 9976 | 45 | 24 | 3285 | 120 |
+| [Rk2i](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Rk2i/README.md) | Complete | 9999 | 12 | 12 | 876 | 68 |
+| [Rk3a](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Rk3a/README.md) | Complete | 9995 | 17 | 11 | 1241 | 58 |
+| [Rk4i](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Rk4i/README.md) | Complete | 9999 | 24 | 24 | 1752 | 168 |
+| [Rl1a](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Rl1a/README.md) | Complete | 9830 | 30 | 7 | 2190 | 16 |
+| [Rl2i](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Rl2i/README.md) | Complete | 9980 | 9 | 6 | 657 | 17 |
+| [Rl3a](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Rl3a/README.md) | Complete | 9883 | 18 | 9 | 1314 | 30 |
+| [Rl4i](https://github.com/match-BiBaZu/BiBaZu_StableComponentenPoses/blob/grouped/Rl4i/README.md) | Complete | 9992 | 19 | 8 | 1387 | 28 |
 
 Each component page links representative images, full membership and barrier evidence, and individual/member stability curves. Percentages use all completed drops. Roadmap connections are computed from representative orientations.
 
