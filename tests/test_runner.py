@@ -78,7 +78,7 @@ def test_short_real_cube_run_persists_unknown_pose_and_outputs(cube: Path) -> No
     manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["mesh_source_sha256"]
     assert manifest["mesh_triangles_sha256"]
-    assert manifest["roadmap_sha256"] is None
+    assert "roadmap_sha256" not in manifest
     assert result.summary["disturbance_trials"] == 1
 
 

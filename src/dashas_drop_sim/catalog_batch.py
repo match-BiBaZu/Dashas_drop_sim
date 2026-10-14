@@ -8,7 +8,6 @@ from importlib import metadata
 import json
 from pathlib import Path
 
-from .batch import find_roadmap
 from .catalog import catalog_models
 from .catalog_export import export_run, git, model_pair, sha256
 from .config import RunConfig
@@ -30,7 +29,6 @@ def signature(config: RunConfig) -> str:
     for key in ("output_dir", "catalog_repo", "catalog_cad_dir", "catalog_push", "workers"):
         settings.pop(key)
     settings["mesh_path"] = sha256(config.mesh_path)
-    settings["roadmap_path"] = sha256(config.roadmap_path) if config.roadmap_path else None
     settings["observed_catalog_path"] = sha256(config.observed_catalog_path) if config.observed_catalog_path else None
     return hashlib.sha256(json.dumps({"settings": settings, "engine": engine_fingerprint()}, sort_keys=True).encode()).hexdigest()
 
@@ -96,7 +94,7 @@ def run_catalog_batch(base: RunConfig, *, emit=None, cancel=None) -> dict:
             break
         if engine_fingerprint() != engine:
             raise RuntimeError("Simulationscode wurde während des Batches verändert; vor dem Fortsetzen neu starten.")
-        config = replace(base, mesh_path=mesh, roadmap_path=find_roadmap(mesh), output_dir=base.output_dir / name)
+        config = replace(base, mesh_path=mesh, output_dir=base.output_dir / name)
         emit({"event": "workpiece", "workpiece": name, "index": index, "total": len(models)})
         try:
             result = run_with_catalog(config, emit=emit, cancel=cancel)

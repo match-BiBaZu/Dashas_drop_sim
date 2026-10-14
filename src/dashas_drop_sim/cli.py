@@ -27,7 +27,7 @@ def _config(path: Path) -> RunConfig:
     raw = json.loads(path.read_text(encoding="utf-8-sig"))
     if not isinstance(raw, dict):
         raise ValueError("Configuration JSON must contain an object.")
-    for key in ("mesh_path", "roadmap_path", "output_dir", "catalog_repo", "catalog_cad_dir", "observed_catalog_path"):
+    for key in ("mesh_path", "output_dir", "catalog_repo", "catalog_cad_dir", "observed_catalog_path"):
         if raw.get(key) is not None and not Path(raw[key]).expanduser().is_absolute():
             raw[key] = str((path.parent / Path(raw[key]).expanduser()).resolve())
     return RunConfig.from_dict(raw)
@@ -61,7 +61,7 @@ def _preview(config: RunConfig, trial_index: int, *, visible: bool, stopped: thr
         from .observed import ObservedPoseResolver
         resolver = ObservedPoseResolver(config.mesh_path, config.observed_catalog_path)
     else:
-        resolver = PoseResolver(part.catalog_mesh_path, config.roadmap_path,
+        resolver = PoseResolver(part.catalog_mesh_path,
                                 original_mesh_path=config.mesh_path,
                                 cache_dir=config.output_dir / ".pose_cache")
     _write_json(run_dir / "manifest.json", build_manifest(config, part, resolver))
@@ -76,7 +76,7 @@ def _preview(config: RunConfig, trial_index: int, *, visible: bool, stopped: thr
     record["match_distance_deg"] = match.distance_deg if match else None
     _write_json(run_dir / "preview.json", record)
     _emit({"event": "done", "run_dir": str(run_dir),
-           "message": f"Einzelfall: {outcome.status}, Roadmap-Pose: {match.pose_id if match and match.pose_id is not None else 'keine'}"})
+           "message": f"Einzelfall: {outcome.status}, Beobachtete Pose: {match.pose_id if match and match.pose_id is not None else 'keine'}"})
     return 130 if stopped.is_set() else 0
 
 

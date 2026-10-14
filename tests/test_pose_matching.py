@@ -1,17 +1,14 @@
-"""Roadmap mapping must preserve unknown modes and catalogue equivalences."""
+"""Observed orientation clustering preserves symmetry and unknown modes."""
 
 from __future__ import annotations
 
-import json
 import sys
 from types import ModuleType, SimpleNamespace
 
 import numpy as np
 import pytest
-from scipy.spatial.transform import Rotation
-import yaml
-
 from dashas_drop_sim.pose_matching import PoseResolver
+from scipy.spatial.transform import Rotation
 
 
 def _fake_chute_pose(monkeypatch, *, continuous_axis=None):
@@ -39,90 +36,11 @@ def _fake_chute_pose(monkeypatch, *, continuous_axis=None):
     monkeypatch.setitem(sys.modules, "chute_pose", module)
 
 
-def _roadmap_file(tmp_path, mesh, suffix, nodes):
-    path = tmp_path / f"roadmap{suffix}"
-    if suffix == ".json":
-        data = {
-            "source": str(mesh),
-            "nodes": [
-                {"node_id": node_id, "pose_ids": pose_ids}
-                for node_id, pose_ids in nodes
-            ],
-        }
-        path.write_text(json.dumps(data), encoding="utf-8")
-    else:
-        data = {
-            "part": {"mesh_source": str(mesh)},
-            "poses": [
-                {"id": node_id, "equivalent_catalog_pose_ids": pose_ids}
-                for node_id, pose_ids in nodes
-            ],
-        }
-        path.write_text(yaml.safe_dump(data), encoding="utf-8")
-    return path
-
-
-@pytest.mark.parametrize("suffix", [".json", ".yaml"])
-def test_uses_every_catalogue_orientation_and_part_symmetry(monkeypatch, tmp_path, suffix):
-    _fake_chute_pose(monkeypatch)
-    mesh = tmp_path / "part.stl"
-    mesh.write_bytes(b"valid STL content is supplied by the geometry stage")
-    roadmap = _roadmap_file(tmp_path, mesh, suffix, [(5, [101, 102]), (9, [104])])
-    resolver = PoseResolver(mesh, roadmap)
-
-    second_catalogue_orientation = Rotation.from_euler("x", 30, degrees=True).as_quat()
-    assert resolver.resolve(second_catalogue_orientation).pose_id == 5
-    symmetric_orientation = Rotation.from_euler("z", 180, degrees=True).as_quat()
-    assert resolver.resolve(symmetric_orientation).pose_id == 5
-    assert resolver.reference_quaternion(5) is not None
-    unknown = resolver.resolve(Rotation.from_euler("x", 50, degrees=True).as_quat())
-    assert unknown.status == "unmatched"
-    assert unknown.pose_id is None
-    assert unknown.distance_deg == pytest.approx(20)
-
-
-def test_ambiguous_orientation_is_not_forced_to_one_node(monkeypatch, tmp_path):
-    _fake_chute_pose(monkeypatch)
-    mesh = tmp_path / "part.stl"
-    mesh.write_bytes(b"mesh")
-    roadmap = _roadmap_file(tmp_path, mesh, ".yaml", [(5, [101]), (6, [103])])
-    resolver = PoseResolver(mesh, roadmap)
-
-    result = resolver.resolve(Rotation.from_euler("x", 5, degrees=True).as_quat())
-    assert result.status == "ambiguous"
-    assert result.pose_id is None
-    assert result.distance_deg == pytest.approx(5)
-
-
-def test_existing_roadmap_mesh_source_must_match_selected_stl(monkeypatch, tmp_path):
-    _fake_chute_pose(monkeypatch)
-    original = tmp_path / "original.stl"
-    original.write_bytes(b"original")
-    selected = tmp_path / "selected.stl"
-    selected.write_bytes(b"different")
-    roadmap = _roadmap_file(tmp_path, original, ".json", [(5, [101])])
-
-    with pytest.raises(ValueError, match="SHA-256"):
-        PoseResolver(selected, roadmap)
-
-
-def test_step_original_cannot_reuse_stl_catalogue_ids(monkeypatch, tmp_path):
-    _fake_chute_pose(monkeypatch)
-    generated = tmp_path / "generated.stl"
-    generated.write_bytes(b"triangulated")
-    step = tmp_path / "part.step"
-    step.write_bytes(b"STEP source")
-    roadmap = _roadmap_file(tmp_path, generated, ".yaml", [(5, [101])])
-
-    with pytest.raises(ValueError, match="original STL"):
-        PoseResolver(generated, roadmap, original_mesh_path=step)
-
-
 def test_unknown_pose_clusters_are_complete_link_and_order_stable(monkeypatch, tmp_path):
     _fake_chute_pose(monkeypatch)
     mesh = tmp_path / "part.stl"
     mesh.write_bytes(b"mesh")
-    resolver = PoseResolver(mesh, None, cluster_tolerance_deg=5)
+    resolver = PoseResolver(mesh, cluster_tolerance_deg=5)
     angles = [0, 4, 8, 180]
     quats = Rotation.from_euler("z", [[angle] for angle in angles], degrees=True).as_quat()
 
@@ -140,7 +58,7 @@ def test_continuous_symmetry_ignores_spin_around_part_axis(monkeypatch, tmp_path
     _fake_chute_pose(monkeypatch, continuous_axis=(0, 0, 1))
     mesh = tmp_path / "part.stl"
     mesh.write_bytes(b"mesh")
-    resolver = PoseResolver(mesh, None)
+    resolver = PoseResolver(mesh)
     quats = Rotation.from_euler("z", [[0], [70], [140]], degrees=True).as_quat()
     tilted = Rotation.from_euler("x", 20, degrees=True).as_quat()
 
@@ -153,25 +71,25 @@ def test_invalid_quaternion_is_rejected(monkeypatch, tmp_path):
     _fake_chute_pose(monkeypatch)
     mesh = tmp_path / "part.stl"
     mesh.write_bytes(b"mesh")
-    resolver = PoseResolver(mesh, None)
+    resolver = PoseResolver(mesh)
 
     with pytest.raises(ValueError, match="zero quaternion"):
         resolver.resolve([0, 0, 0, 0])
 
 
-def test_cached_catalogue_preserves_matching_without_rebuilding(monkeypatch, tmp_path):
+def test_cached_symmetry_avoids_repeating_geometry_analysis(monkeypatch, tmp_path):
     _fake_chute_pose(monkeypatch)
     mesh = tmp_path / "part.stl"
     mesh.write_bytes(b"same mesh")
-    roadmap = _roadmap_file(tmp_path, mesh, ".yaml", [(5, [101, 102])])
     cache = tmp_path / "pose_cache"
-    first = PoseResolver(mesh, roadmap, cache_dir=cache)
-    assert first.cache_hit is False
+    first = PoseResolver(mesh, cache_dir=cache)
+    assert not first.cache_hit
 
-    def forbidden(_path):
-        raise AssertionError("The catalogue should have been read from the cache")
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("Symmetry must be read from the cache")
 
-    monkeypatch.setattr(sys.modules["chute_pose"], "build_pose_catalog", forbidden)
-    second = PoseResolver(mesh, roadmap, cache_dir=cache)
-    assert second.cache_hit is True
-    assert second.resolve(Rotation.from_euler("x", 30, degrees=True).as_quat()).pose_id == 5
+    monkeypatch.setattr(sys.modules["chute_pose"], "detect_rotational_symmetry", forbidden)
+    second = PoseResolver(mesh, cache_dir=cache)
+    assert second.cache_hit
+    assert second.recognition_descriptor() == first.recognition_descriptor()
+    assert not second.known_pose_ids

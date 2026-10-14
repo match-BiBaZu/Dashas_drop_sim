@@ -5,13 +5,17 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from scipy.spatial.transform import Rotation
-
 from dashas_drop_sim.catalog import catalog_models
-from dashas_drop_sim.grouping import analyze_groups, basin_memberships, choose_representative, relative_path
-from dashas_drop_sim.observed import ObservedPoseResolver
-from dashas_drop_sim.grouped_run import retained_group
 from dashas_drop_sim.config import RunConfig
+from dashas_drop_sim.grouped_run import retained_group
+from dashas_drop_sim.grouping import (
+    analyze_groups,
+    basin_memberships,
+    choose_representative,
+    relative_path,
+)
+from dashas_drop_sim.observed import ObservedPoseResolver
+from scipy.spatial.transform import Rotation
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -118,13 +122,3 @@ def test_grouped_cube_exports_and_resumes_without_repeating_trials(tmp_path):
     assert resumed.summary["completed_trials"] == 1
     assert resumed.summary["pose_groups"] == result.summary["pose_groups"]
     assert (result.run_dir / "group_disturbances.jsonl").read_bytes() == before
-
-
-def test_observed_roadmap_cannot_be_misread_as_geometry_indices(tmp_path):
-    from dashas_drop_sim.pose_matching import PoseResolver
-    mesh = tmp_path / "part.stl"
-    mesh.write_bytes(b"mesh")
-    roadmap = tmp_path / "roadmap.json"
-    roadmap.write_text(json.dumps({"catalogue_id_namespace": "input_pose_list_index", "nodes": [{"node_id": 0, "pose_ids": [0]}]}))
-    with pytest.raises(ValueError, match="observed_catalog_path"):
-        PoseResolver(mesh, roadmap)

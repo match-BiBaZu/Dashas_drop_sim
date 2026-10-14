@@ -8,9 +8,10 @@ getrennte Ergebnisse.
 
 ## Installation
 
-Voraussetzungen: Windows oder ein System mit MuJoCo-Unterstützung, Python 3.12,
-[`uv`](https://docs.astral.sh/uv/) und für die Roadmap-Abhängigkeit Zugriff auf
-GitHub. Im geklonten Repository:
+Voraussetzungen: Windows oder ein System mit MuJoCo-Unterstützung, Python 3.12
+und [`uv`](https://docs.astral.sh/uv/). Geometriecode und CAD-Paare
+werden mitgeliefert; ein zweites Repository ist nicht erforderlich.
+Im geklonten Repository:
 
 ```powershell
 uv sync --python 3.12 --all-extras
@@ -36,8 +37,10 @@ Knopfs gespeichert. Unter Windows liegt die Datei unter
 `~/.config/dashas-drop-sim/gui_defaults.json`.
 
 `--all-extras` installiert die PyQt6-Oberfläche, OpenCascade für STEP-Dateien,
-die fest gepinnte Version von `bibazu_geometry_to_pose` für Roadmap-Vergleiche
-und pytest. Nach der Installation lassen sich GUI und CLI auch mit
+die lokale Geometriekopie unter `vendor/bibazu_chute_pose` für Symmetrieerkennung
+und pytest. Die bisher verwendete Geometrieversion bleibt erhalten. Details
+stehen unter [Eigenständige Geometrie](docs/standalone-geometry.md).
+Nach der Installation lassen sich GUI und CLI auch mit
 `uv run --no-sync` starten, wenn keine erneute Synchronisierung gewünscht ist.
 
 Für einen Testlauf ohne Oberfläche:
@@ -69,19 +72,15 @@ Störversuche.
 Im Dropdown **Werkstückkatalog** stehen 39 STL-Modelle aus
 [`Werkstücke_STL_grob`](https://github.com/match-BiBaZu/bibazu_geometry_to_pose/tree/main/Werkst%C3%BCcke_STL_grob)
 als mitgelieferter, offline nutzbarer Stand `02d3fbcf` bereit. **Durchsuchen**
-bleibt für eigene STL- und STEP-Dateien verfügbar. Ist die lokale
-`bibazu_geometry_to_pose`-Arbeitskopie vorhanden, wird eine eindeutig passende
-Roadmap beim Auswählen automatisch eingetragen. In der Häufigkeitstabelle
+bleibt für eigene STL- und STEP-Dateien verfügbar. Roadmaps werden in der separaten Roadmap-App erstellt und nummeriert. In der Häufigkeitstabelle
 öffnet **Bild** eine schematische 3D-Ansicht der Pose; beobachtete Endlagen und
 unbeobachtete Katalogorientierungen sind beschriftet.
 
 Für mehrere Werkstücke gibt es den Bereich **Mehrere Werkstücke**. **Mehrere
 Dateien laden** erlaubt die gemeinsame Auswahl mehrerer STL- oder STEP-Dateien;
 **Aus Katalog laden** erlaubt Mehrfachauswahl oder **Alle auswählen**. Ein bereits
-eingerichtetes Modell samt Roadmap lässt sich mit **Aktuelles Werkstück
-hinzufügen** in die Liste übernehmen. Jeder Eintrag hat eine eigene optionale
-Roadmap. Eindeutig passende Roadmaps werden automatisch eingetragen und können
-in der Liste geändert oder geleert werden.
+eingerichtetes Modell lässt sich mit **Aktuelles Werkstück
+hinzufügen** in die Liste übernehmen. Jeder Eintrag enthält ein Modell; Simulationsparameter werden gemeinsam gewählt.
 
 **Werkstück-Batch starten** verarbeitet die gesamte Liste nacheinander ohne
 weitere Eingaben. Die aktuellen Simulationsparameter, Versuchszahl und Anzahl
@@ -94,8 +93,7 @@ Werkstücke.
 Ergebnisse liegen unter `results/batch_<Zeitstempel>/<Nummer>_<Werkstück>/run_*`.
 `batch.json` im Batch-Ordner enthält Einstellungen, Status und Ergebnisordner
 aller Einträge. Nach Abschluss öffnet **Ergebnisse** in der jeweiligen Tabellenzeile
-die Häufigkeits- und Stabilitätstabellen dieses Werkstücks. Die Auswahl setzt
-auch dessen Roadmap für die anschließende Neunummerierung der Pose-IDs.
+die Häufigkeits- und Stabilitätstabellen dieses Werkstücks. Die Auswahl öffnet die gespeicherten Ergebnisse dieses Werkstücks.
 
 Serien ohne 3D-Ansicht und Störversuche laufen über getrennte MuJoCo-Prozesse auf mehreren
 CPU-Kernen. Die GUI bietet dafür **Parallele Prozesse** (Vorgabe: bis zu vier).
@@ -119,7 +117,6 @@ Beispiel für `config.json` (Pfade anpassen):
 ```json
 {
   "mesh_path": "C:/Bauteile/Qk1a.stl",
-  "roadmap_path": "C:/Bauteile/Qk1a_roadmap.yaml",
   "output_dir": "C:/Falltests/Ergebnisse",
   "trials": 100,
   "workers": 4,
@@ -152,16 +149,11 @@ Beispiel für `config.json` (Pfade anpassen):
 
 Relative Eingabe- und Ausgabepfade in der JSON-Konfiguration werden relativ zum
 **Ordner der Konfigurationsdatei** aufgelöst.
-`roadmap_path` kann weggelassen oder auf `null` gesetzt werden. Bekannte
-Roadmap-IDs erfordern das originale STL, mit dem die Roadmap erzeugt wurde;
-eine STEP-Triangulierung erzeugt andere Katalog-IDs. Ohne Roadmap bleiben die
-gefundenen Lagen als separate, unbekannte Gruppen sichtbar. Die Zuordnung
-berücksichtigt erkannte Bauteilsymmetrien und alle Katalogorientierungen einer
-Roadmap-Pose. Eine mehrdeutige oder zu weit entfernte Endlage bekommt keine
-erzwungene ID.
-Wird ohne das optionale `roadmap`-Paket installiert, stehen auch für unbekannte
-Gruppen keine erkannten Bauteilsymmetrien zur Verfügung; dies wird im Manifest
-als `symmetry_available: false` ausgewiesen.
+Beobachtete Lagen werden unter erkannten Bauteilsymmetrien gruppiert und als
+Pose-Katalog exportiert. Roadmaps werden weder eingelesen noch umnummeriert.
+Alte `roadmap_path`-Einträge werden beim Laden einer Konfiguration ignoriert.
+Ohne das optionale `geometry`-Extra stehen keine erkannten Bauteilsymmetrien
+zur Verfügung; dies wird als `symmetry_available: false` ausgewiesen.
 
 Die Bereiche der GUI sind 0–200 mm/s Bandgeschwindigkeit, 0–200 mm
 Abwurfhöhe und ±100 mm Querposition, gemessen von der Winkelhalbierenden
@@ -361,8 +353,8 @@ Konfiguration, Seeds, Modellversionen und Software-Commit ermöglichen die Zuord
 
 Die exportierten Pose-IDs bleiben unabhängig von der Häufigkeit reserviert.
 `pose_registry.json` hält auch frühere, aktuell nicht beobachtete IDs bereit.
-Orientierungen werden unter der erkannten Bauteilsymmetrie gruppiert; die Roadmap
-dient als optionale Referenz. Die Erkennung benötigt keine installierte Roadmap:
+Orientierungen werden unter der erkannten Bauteilsymmetrie gruppiert.
+Die exportierten Pose-Dateien können anschließend in der separaten Roadmap-App verwendet werden:
 
 ```python
 from dashas_drop_sim.catalog_export import recognize_pose
@@ -426,26 +418,7 @@ Störkurve beschreibt den beobachteten Pose-Erhalt am Ende und in eingependelten
 Zwischenlagen; die normierte Fläche dient
 als Rangmaß. Es gibt keinen vorgegebenen Grenzwert für „stabil“.
 
-Beim normalen Simulationslauf wird die Roadmap nur gelesen. Ihre Felder für
-Luftimpuls-Übergänge werden durch Fallhäufigkeiten nicht verändert.
-
-### Pose-Nummern nach Häufigkeit ordnen
-
-Nach einer Serie kann die Schaltfläche **YAML und JSON nach Häufigkeit neu
-nummerieren** die IDs einer geladenen, gepaarten Roadmap ändern. Dafür wird
-die `summary.json` des Laufs ausgewählt. Die Simulation muss mit genau dieser
-Version der YAML- oder JSON-Roadmap gelaufen sein. Pose 0 wird die am häufigsten
-beobachtete Roadmap-Pose; weitere Posen folgen absteigend nach Trefferzahl.
-Gleichstände werden nach bisheriger ID sortiert, Posen ohne Treffer stehen am
-Ende. Unbekannte Lagen und nicht eingependelte Versuche werden nicht in die
-Roadmap aufgenommen. Die Einordnung als robust/metastabil bleibt erhalten;
-Pose-Listen und Übergänge in beiden Dateien werden auf die neuen IDs umgestellt.
-
-Der Speicherdialog schlägt neue Dateien mit `_frequency_ordered` im Namen vor.
-Wer die bisherigen Dateien überschreibt, erhält zuvor Sicherungskopien mit
-`.bak.<Zeitstempel>` im selben Ordner. Bereits gespeicherte Simulationsergebnisse
-behalten ihre bisherigen IDs; neue Läufe können die neu nummerierte Roadmap
-verwenden.
+Roadmaps und deren Nummerierung werden ausschließlich in der separaten Roadmap-App bearbeitet.
 
 ## Physikalische Annahmen und Grenzen
 

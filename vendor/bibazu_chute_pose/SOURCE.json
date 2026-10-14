@@ -1,0 +1,27 @@
+{
+  "repository": "https://github.com/match-BiBaZu/bibazu_geometry_to_pose",
+  "commit": "94cffbca9e4a227beea266bb098f8186e1d1029d",
+  "sha256": {
+    "src/chute_pose/__init__.py": "ac8d9e1ed5734c3184df2f81d1c675668ea5eca2e4ba52c76227516df74397da",
+    "src/chute_pose/classical.py": "47dc4bf76fdbda36c2241cb575cc1256cc4325e8b675cf4ef303897cc70f858f",
+    "src/chute_pose/cli.py": "bacf15fbb32d2974fe695660295bfeef64ad6147fbe2ac7628ed76905a243e00",
+    "src/chute_pose/contacts.py": "498fe5d3b66148a3446738db16fd3ca9990e2e0391bee719d98e2618ca8aa5c2",
+    "src/chute_pose/csa.py": "2247b0f785a959cc305821f3f8c6cb5cdbe3d00ecbd9cac51369cc1404060dfb",
+    "src/chute_pose/disturbance.py": "0b0eb781895c8f0b9226695c3938457a633d55a4d5fd9c9574d80595ac3a8218",
+    "src/chute_pose/equivalence.py": "9aa42f3dc96d1ded95f80ed90f40679fb131b2ccfcd07f7f843b49a5167030ca",
+    "src/chute_pose/frame.py": "4c1a9650283270afdb9207faa85c3fffca917d7e0c73132240c945ccce0a0b5f",
+    "src/chute_pose/generate.py": "2e1c0c5e47608b257ed988fbf57deb692dba4f0b5cedf48c7a17c0f65e056099",
+    "src/chute_pose/geometry.py": "061bd41d340009a4064675e915722270c680a06299aca0aa0a1369713af228ff",
+    "src/chute_pose/gui.py": "4cc33790c34c3fe426e562ad701fb79bb473d860bdb57b1615270104ceb34825",
+    "src/chute_pose/metrics.py": "e21ba3b091e11c6d897937b0038dc3b743af63aaece879991f7d3934fa0060ba",
+    "src/chute_pose/plot_view.py": "e45eb05c049f4c9b73d49287eb66759552144e81faf01f566b76915723b7a6a5",
+    "src/chute_pose/roadmap.py": "d9cb083cf587cf934d615f337dbda22948244225877abd171c3e7ee74a3f81c2",
+    "src/chute_pose/rocking.py": "b90d2820c60df18fa97f3211b67773170c76e86a228f89d4d79f64e98ebfcf53",
+    "src/chute_pose/stability.py": "25fab3ffaa0427769e2986f9a3334a16844eb9a0b13f40d47dbab33539fac6ae",
+    "src/chute_pose/step_verification.py": "dcd7f26dacd3d7fd129c7a61b874e42c63274709f5aa3779c0b3ed760a0f71ee",
+    "src/chute_pose/symmetry.py": "fcd294c6f9463037063426c2717a5bfcac8f205fe72bc64d67e4799d2d7b043f",
+    "src/chute_pose/visualization.py": "d7cdeb64455c7ad345daa4a5a6a4df6e174a57f4b9db55fcc9aeb8ae7883838d",
+    "pyproject.toml": "42f750a8f61cb289062dd2bb150113d9ef6b7a4f83b2a003a6f37eafcca72632",
+    "LICENSE": "374ea64ff6d4f13aaec09b594d7b549426219d3163abb947031450d3a4642afd"
+  }
+}

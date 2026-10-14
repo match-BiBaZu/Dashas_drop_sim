@@ -24,9 +24,10 @@ from dashas_drop_sim.catalog import catalog_models
 from dashas_drop_sim.catalog_batch import engine_fingerprint, signature
 from dashas_drop_sim.catalog_export import sha256
 from dashas_drop_sim.cli import _config
-from dashas_drop_sim.grouped_export import (archive_completed_run, audit_run, export_grouped_poses, export_grouped_roadmap,
+from dashas_drop_sim.grouped_export import (archive_completed_run, audit_run, export_grouped_poses,
                                           inventory, read, verify_inventory, verify_grouped_catalog)
 from dashas_drop_sim.runner import run_experiment, _write_json, _write_csv
+from experiments.legacy_roadmap_export import export_grouped_roadmap
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = ROOT / "experiments/grouped_catalog39"

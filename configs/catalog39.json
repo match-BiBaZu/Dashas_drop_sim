@@ -2,7 +2,7 @@
   "mesh_path": "../src/dashas_drop_sim/assets/catalog/Kk1a.STL",
   "output_dir": "../results/catalog39",
   "catalog_repo": "../../BiBaZu_StableComponentenPoses",
-  "catalog_cad_dir": "../../bibazu_geometry_to_pose/Werkstücke_STL_grob",
+  "catalog_cad_dir": "../src/dashas_drop_sim/assets/geometry/cad",
   "catalog_push": true,
   "compute_stability": false,
   "trials": 1000,

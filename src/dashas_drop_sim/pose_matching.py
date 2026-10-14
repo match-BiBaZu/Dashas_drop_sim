@@ -1,4 +1,4 @@
-"""Compare simulated part orientations with the independent chute pose roadmap.
+"""Compare simulated part orientations with the observed pose catalogue.
 
 All quaternions are ``(x, y, z, w)`` rotations from part coordinates into the
 right-handed chute frame (x downhill, y away from the wall, z away from the
@@ -22,7 +22,6 @@ import numpy as np
 from scipy.cluster.hierarchy import fcluster, linkage
 from scipy.spatial.distance import squareform
 from scipy.spatial.transform import Rotation
-import yaml
 
 
 MatchStatus = Literal["matched", "unmatched", "ambiguous"]
@@ -63,51 +62,6 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _roadmap(path: Path) -> dict:
-    with path.open("r", encoding="utf-8") as source:
-        data = json.load(source) if path.suffix.lower() == ".json" else yaml.safe_load(source)
-    if not isinstance(data, dict):
-        raise ValueError("Roadmap must contain an object at its root.")
-    if "poses" in data and isinstance(data["poses"], list):
-        return data
-    if "nodes" in data and isinstance(data["nodes"], list):
-        return data
-    raise ValueError("Expected a chute pose YAML handover or JSON roadmap.")
-
-
-def _roadmap_source(data: dict, path: Path) -> Path | None:
-    raw = data.get("part", {}).get("mesh_source") if isinstance(data.get("part"), dict) else data.get("source")
-    if not raw:
-        return None
-    source = Path(str(raw)).expanduser()
-    return source if source.is_absolute() else path.parent / source
-
-
-def _node_catalogue_ids(data: dict) -> dict[int, tuple[int, ...]]:
-    mapping: dict[int, tuple[int, ...]] = {}
-    owned: dict[int, int] = {}
-    for node in data.get("poses", data.get("nodes", [])):
-        if not isinstance(node, dict):
-            raise ValueError("Every roadmap pose must be an object.")
-        node_id = int(node.get("id", node.get("node_id")))
-        raw_ids = node.get("equivalent_catalog_pose_ids", node.get("pose_ids"))
-        if raw_ids is None:
-            raw_ids = [node.get("original_catalog_pose_id")]
-        if not isinstance(raw_ids, (list, tuple)) or not raw_ids:
-            raise ValueError(f"Roadmap pose {node_id} has no catalogue IDs.")
-        ids = tuple(sorted({int(value) for value in raw_ids}))
-        if node_id in mapping:
-            raise ValueError(f"Duplicate roadmap pose ID {node_id}.")
-        for catalogue_id in ids:
-            if catalogue_id in owned and owned[catalogue_id] != node_id:
-                raise ValueError(f"Catalogue pose {catalogue_id} belongs to two roadmap nodes.")
-            owned[catalogue_id] = node_id
-        mapping[node_id] = ids
-    if not mapping:
-        raise ValueError("The roadmap contains no poses.")
-    return mapping
-
-
 def _canonical_quat(quat: np.ndarray) -> tuple[float, ...]:
     signed = quat.copy()
     for value in signed[::-1]:
@@ -119,22 +73,21 @@ def _canonical_quat(quat: np.ndarray) -> tuple[float, ...]:
 
 
 class PoseResolver:
-    """Map settled orientations to roadmap IDs and group unknown orientations.
+    """Group observed orientations under the part symmetry.
 
-    A mapped pose needs a nearest roadmap node within ``match_tolerance_deg``
+    An observed reference needs a nearest pose within ``match_tolerance_deg``
     (default 5°). If two nodes are within ``ambiguity_margin_deg`` (default 1°)
     of one another, the result is ambiguous. These angular limits are explicit
     classification assumptions; they are not stability thresholds.
 
     ``mesh_path`` is a validated STL in the same part frame as the simulation.
     It may be the generated STL for a STEP input. ``original_mesh_path`` is the
-    user-selected file, used to verify an STL roadmap against its source bytes.
+    user-selected file, retained in experiment provenance.
     """
 
     def __init__(
         self,
         mesh_path: Path,
-        roadmap_path: Path | None,
         *,
         original_mesh_path: Path | None = None,
         cache_dir: Path | None = None,
@@ -152,7 +105,6 @@ class PoseResolver:
 
         self.mesh_path = Path(mesh_path).expanduser().resolve()
         self.original_mesh_path = Path(original_mesh_path or mesh_path).expanduser().resolve()
-        self.roadmap_path = None if roadmap_path is None else Path(roadmap_path).expanduser().resolve()
         self.match_tolerance_deg = float(match_tolerance_deg)
         self.ambiguity_margin_deg = float(ambiguity_margin_deg)
         self.cluster_tolerance_deg = float(cluster_tolerance_deg)
@@ -165,24 +117,12 @@ class PoseResolver:
         self._catalogue_node_ids = np.empty(0, dtype=int)
         self.known_pose_ids: tuple[int, ...] = ()
         self.cache_hit = False
-        data = None if self.roadmap_path is None else _roadmap(self.roadmap_path)
-        if data is not None:
-            if (data.get("catalogue_id_namespace") == "input_pose_list_index"
-                    or data.get("robustness_method") == "observed_simulation"
-                    or data.get("classification", {}).get("basis") == "observed_simulation"):
-                raise ValueError("Observed roadmap indices are not geometry IDs; select observed_catalog_path (poses.json).")
-            if self.original_mesh_path.suffix.lower() != ".stl":
-                raise ValueError("Roadmap IDs require the original STL used to build the roadmap; STEP triangulation changes catalogue IDs.")
-            source = _roadmap_source(data, self.roadmap_path)
-            if source is not None and source.is_file() and _sha256(source) != _sha256(self.original_mesh_path):
-                raise ValueError("Selected STL SHA-256 differs from the roadmap mesh source.")
-
         try:
             chute_pose = importlib.import_module("chute_pose")
         except ModuleNotFoundError as exc:
-            if exc.name != "chute_pose" or data is not None:
+            if exc.name != "chute_pose":
                 raise
-            # The roadmap extra is optional. Standalone runs still record
+            # The geometry extra is optional. Standalone runs still record
             # unknown orientations, although symmetry cannot be inferred.
             return
 
@@ -193,21 +133,16 @@ class PoseResolver:
             except metadata.PackageNotFoundError:
                 package_version = "unknown"
             cache_key = hashlib.sha256(json.dumps({
-                "cache_version": 1,
+                "cache_version": 2,
                 "mesh_sha256": _sha256(self.mesh_path),
-                "roadmap_sha256": _sha256(self.roadmap_path) if self.roadmap_path else None,
                 "package_version": package_version,
-                "symmetry_tolerance_mm": data.get("symmetry_tolerance_mm") if data else None,
             }, sort_keys=True).encode("utf-8")).hexdigest()
             cache_file = Path(cache_dir).expanduser().resolve() / f"{cache_key}.json"
             if cache_file.is_file() and self._load_cache(cache_file):
                 self.cache_hit = True
                 return
 
-        symmetry_kwargs: dict[str, float] = {}
-        if data is not None and data.get("symmetry_tolerance_mm") is not None:
-            symmetry_kwargs["tolerance_mm"] = float(data["symmetry_tolerance_mm"])
-        symmetry = chute_pose.detect_rotational_symmetry(self.mesh_path, **symmetry_kwargs)
+        symmetry = chute_pose.detect_rotational_symmetry(self.mesh_path)
         self.symmetry_available = True
         self.symmetry_symbol = symmetry.symbol
         if symmetry.continuous_axis_part is not None:
@@ -218,34 +153,6 @@ class PoseResolver:
                 np.asarray([element.rotation_part_from_part for element in symmetry.elements], dtype=float)
             ).as_quat()
 
-        if data is None:
-            if cache_file is not None:
-                self._save_cache(cache_file)
-            return
-        catalogue = chute_pose.build_pose_catalog(self.mesh_path)
-        catalogue_by_id = {pose.pose_id: pose for pose in catalogue.poses}
-        mapping = _node_catalogue_ids(data)
-        self.known_pose_ids = tuple(sorted(mapping))
-        node_ids: list[int] = []
-        quats: list[np.ndarray] = []
-        for node_id, pose_ids in sorted(mapping.items()):
-            for catalogue_id in pose_ids:
-                if catalogue_id not in catalogue_by_id:
-                    raise ValueError(
-                        f"Roadmap catalogue ID {catalogue_id} is absent from the selected STL catalogue."
-                    )
-                base = _quat(catalogue_by_id[catalogue_id].quaternion_xyzw)
-                if self._continuous_axis is None:
-                    variants = (Rotation.from_quat(base) * Rotation.from_quat(self._symmetry_quats)).as_quat()
-                    quats.extend(variants)
-                    node_ids.extend([node_id] * len(variants))
-                else:
-                    quats.append(base)
-                    node_ids.append(node_id)
-        self._catalogue_quats = np.asarray(quats, dtype=float)
-        self._catalogue_node_ids = np.asarray(node_ids, dtype=int)
-        if self._continuous_axis is not None:
-            self._catalogue_axes = Rotation.from_quat(self._catalogue_quats).apply(self._continuous_axis)
         if cache_file is not None:
             self._save_cache(cache_file)
 
@@ -295,7 +202,7 @@ class PoseResolver:
         temporary.replace(path)
 
     def reference_quaternion(self, pose_id: int) -> tuple[float, float, float, float] | None:
-        """One catalogue orientation for displaying a known roadmap pose."""
+        """One catalogue orientation for displaying a known observed pose."""
         indices = np.flatnonzero(self._catalogue_node_ids == pose_id)
         if len(indices) == 0:
             return None
@@ -314,7 +221,7 @@ class PoseResolver:
         }
 
     def resolve(self, quat_xyzw: Sequence[float] | np.ndarray) -> PoseMatch:
-        """Return one unambiguous roadmap node, or retain the unknown result."""
+        """Return one unambiguous observed reference, or retain the unknown result."""
 
         query = _quat(quat_xyzw)
         if len(self._catalogue_quats) == 0:

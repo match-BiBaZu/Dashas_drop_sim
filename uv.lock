@@ -14,7 +14,7 @@ wheels = [
 [[package]]
 name = "bibazu-chute-pose"
 version = "0.1.0"
-source = { git = "https://github.com/match-BiBaZu/bibazu_geometry_to_pose.git?rev=94cffbca9e4a227beea266bb098f8186e1d1029d#94cffbca9e4a227beea266bb098f8186e1d1029d" }
+source = { directory = "vendor/bibazu_chute_pose" }
 dependencies = [
     { name = "matplotlib" },
     { name = "networkx" },
@@ -22,6 +22,19 @@ dependencies = [
     { name = "scipy" },
     { name = "trimesh" },
 ]
+
+[package.metadata]
+requires-dist = [
+    { name = "cadquery-ocp", marker = "extra == 'step'", specifier = ">=7.8,<8" },
+    { name = "matplotlib", specifier = ">=3.8,<4" },
+    { name = "networkx", specifier = ">=3.2,<4" },
+    { name = "numpy", specifier = ">=1.26,<3" },
+    { name = "pyqt6", marker = "extra == 'gui'", specifier = ">=6.7,<7" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8,<10" },
+    { name = "scipy", specifier = ">=1.11,<2" },
+    { name = "trimesh", specifier = ">=4,<6" },
+]
+provides-extras = ["gui", "dev", "step"]
 
 [[package]]
 name = "cadquery-ocp"
@@ -118,11 +131,11 @@ dependencies = [
 dev = [
     { name = "pytest" },
 ]
+geometry = [
+    { name = "bibazu-chute-pose" },
+]
 gui = [
     { name = "pyqt6" },
-]
-roadmap = [
-    { name = "bibazu-chute-pose" },
 ]
 step = [
     { name = "cadquery-ocp" },
@@ -130,7 +143,7 @@ step = [
 
 [package.metadata]
 requires-dist = [
-    { name = "bibazu-chute-pose", marker = "extra == 'roadmap'", git = "https://github.com/match-BiBaZu/bibazu_geometry_to_pose.git?rev=94cffbca9e4a227beea266bb098f8186e1d1029d" },
+    { name = "bibazu-chute-pose", marker = "extra == 'geometry'", directory = "vendor/bibazu_chute_pose" },
     { name = "cadquery-ocp", marker = "extra == 'step'", specifier = ">=7.8,<8" },
     { name = "coacd", specifier = "==1.0.14" },
     { name = "mujoco", specifier = "==3.14.0" },
@@ -141,7 +154,7 @@ requires-dist = [
     { name = "scipy", specifier = ">=1.11,<2" },
     { name = "trimesh", specifier = ">=4,<6" },
 ]
-provides-extras = ["gui", "step", "roadmap", "dev"]
+provides-extras = ["gui", "step", "geometry", "dev"]
 
 [[package]]
 name = "etils"

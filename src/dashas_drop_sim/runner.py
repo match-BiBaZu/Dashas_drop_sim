@@ -1,4 +1,4 @@
-"""Run and persist drop and disturbance experiments without changing a roadmap."""
+"""Run and persist drop and disturbance experiments with independent observed-pose exports."""
 
 from __future__ import annotations
 
@@ -291,7 +291,6 @@ def build_manifest(config: RunConfig, part: PreparedPart, resolver: PoseResolver
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "mesh_source_sha256": part.source_sha256,
         "mesh_triangles_sha256": part.mesh_sha256,
-        "roadmap_sha256": _sha256(config.roadmap_path),
         "observed_catalog_sha256": _sha256(config.observed_catalog_path),
         "mass_kg": part.mass_kg,
         "inertia_com_kg_m2": part.inertia_com_kg_m2.tolist(),
@@ -374,7 +373,7 @@ def run_experiment(
         from .observed import ObservedPoseResolver
         resolver = ObservedPoseResolver(config.mesh_path, config.observed_catalog_path)
     else:
-        resolver = PoseResolver(part.catalog_mesh_path, config.roadmap_path,
+        resolver = PoseResolver(part.catalog_mesh_path,
                                 original_mesh_path=config.mesh_path,
                                 cache_dir=config.output_dir / ".pose_cache")
     simulator = ChuteSimulator(config, part)

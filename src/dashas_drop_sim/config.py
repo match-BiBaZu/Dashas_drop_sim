@@ -8,12 +8,13 @@ import os
 from pathlib import Path
 from typing import Any
 
+from .resources import local_geometry_path
+
 
 @dataclass(slots=True)
 class RunConfig:
     mesh_path: Path
     output_dir: Path = Path("results")
-    roadmap_path: Path | None = None
     catalog_repo: Path | None = None
     catalog_cad_dir: Path | None = None
     catalog_push: bool = True
@@ -51,20 +52,16 @@ class RunConfig:
     disturbance_levels_mm: tuple[float, ...] = (0.0, 0.05, 0.1, 0.2, 0.4, 0.8)
 
     def validate(self) -> None:
+        self.mesh_path = local_geometry_path(self.mesh_path)
+        if self.catalog_cad_dir not in (None, ""):
+            self.catalog_cad_dir = local_geometry_path(self.catalog_cad_dir)
         for name in ("catalog_repo", "catalog_cad_dir", "observed_catalog_path"):
             value = getattr(self, name)
             setattr(self, name, None if value in (None, "") else Path(value).expanduser().resolve())
         self.mesh_path = Path(self.mesh_path).expanduser().resolve()
         self.output_dir = Path(self.output_dir).expanduser().resolve()
-        self.roadmap_path = (
-            None if self.roadmap_path in (None, "") else Path(self.roadmap_path).expanduser().resolve()
-        )
         if not self.mesh_path.is_file() or self.mesh_path.suffix.lower() not in {".stl", ".step", ".stp"}:
             raise ValueError("Select an existing STL or STEP part file.")
-        if self.roadmap_path is not None and (
-            not self.roadmap_path.is_file() or self.roadmap_path.suffix.lower() not in {".json", ".yaml", ".yml"}
-        ):
-            raise ValueError("The optional roadmap must be an existing JSON or YAML file.")
         self.validate_parameters()
         if self.observed_catalog_path is not None and not self.observed_catalog_path.is_file():
             raise ValueError("The observed catalog must be an existing JSON file.")
@@ -145,7 +142,6 @@ class RunConfig:
         result = asdict(self)
         result["mesh_path"] = str(Path(self.mesh_path).expanduser().resolve())
         result["output_dir"] = str(Path(self.output_dir).expanduser().resolve())
-        result["roadmap_path"] = None if self.roadmap_path is None else str(Path(self.roadmap_path).expanduser().resolve())
         for name in ("catalog_repo", "catalog_cad_dir", "observed_catalog_path"):
             value = getattr(self, name)
             result[name] = None if value is None else str(Path(value).expanduser().resolve())
@@ -153,12 +149,14 @@ class RunConfig:
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "RunConfig":
+        raw = dict(raw)
+        raw.pop("roadmap_path", None)  # Retired input in older saved configurations.
         allowed = cls.__dataclass_fields__.keys()
         extras = set(raw) - set(allowed)
         if extras:
             raise ValueError(f"Unknown configuration keys: {sorted(extras)}")
         payload = dict(raw)
-        for key in ("mesh_path", "output_dir", "roadmap_path", "catalog_repo", "catalog_cad_dir", "observed_catalog_path"):
+        for key in ("mesh_path", "output_dir", "catalog_repo", "catalog_cad_dir", "observed_catalog_path"):
             if payload.get(key) is not None:
                 payload[key] = Path(payload[key])
         if "disturbance_levels_mm" in payload:

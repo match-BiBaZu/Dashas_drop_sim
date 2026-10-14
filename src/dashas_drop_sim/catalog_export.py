@@ -20,6 +20,7 @@ from scipy.spatial.transform import Rotation
 import yaml
 
 from .catalog import catalog_models
+from .resources import cad_directory
 from .pose_matching import PoseResolver
 from .runner import SETTLED_STATUSES, _write_csv, _write_json, wilson_interval
 
@@ -39,7 +40,7 @@ def git(repo: Path, *args: str) -> str:
 
 
 def default_cad_dir() -> Path:
-    return Path(__file__).resolve().parents[3] / "bibazu_geometry_to_pose" / "Werkstücke_STL_grob"
+    return cad_directory()
 
 
 def model_pair(mesh: Path, cad_dir: Path | None = None) -> tuple[Path, Path]:
@@ -242,10 +243,10 @@ def _build_export(run_dir, repo, target, stl, step, rows, config, summary, manif
                 else {"schema_version": 1, "mesh_sha256": sha256(stl), "entries": [], "next_id": 1})
     if registry["mesh_sha256"] != sha256(stl):
         raise ValueError("Geändertes STL benötigt einen eigenen Werkstücknamen, damit Pose-IDs eindeutig bleiben.")
-    resolver = PoseResolver(stl, None, cache_dir=run_dir.parent / ".pose_cache")
+    resolver = PoseResolver(stl, cache_dir=run_dir.parent / ".pose_cache")
     descriptor = manifest.get("recognition", resolver.recognition_descriptor())
     if not descriptor["symmetry_available"]:
-        raise ValueError("Der Katalogexport benötigt die installierte Roadmap-/Symmetrie-Abhängigkeit.")
+        raise ValueError("Der Katalogexport benötigt die installierte Geometrie-/Symmetrie-Abhängigkeit.")
     # Reproduce the recorded symmetry, even if the local dependency was updated.
     resolver._symmetry_quats = np.asarray(descriptor["symmetry_quaternions_xyzw"])
     axis = descriptor["continuous_axis_part"]
@@ -308,13 +309,8 @@ def _build_export(run_dir, repo, target, stl, step, rows, config, summary, manif
     (staged / "poses.yaml").write_text(yaml.safe_dump(catalogue, allow_unicode=True, sort_keys=False), encoding="utf-8")
     _write_json(staged / "pose_registry.json", registry)
     portable = {k: v for k, v in config.items() if k not in {"catalog_repo", "catalog_cad_dir", "catalog_push"}}
-    portable.update(mesh_path=f"{name}.stl", output_dir="./local_results", roadmap_path=None)
-    if config.get("roadmap_path"):
-        roadmap = Path(config["roadmap_path"])
-        if sha256(roadmap) != manifest["roadmap_sha256"]:
-            raise ValueError("Roadmap wurde seit der Simulation verändert.")
-        shutil.copyfile(roadmap, staged / ("roadmap" + roadmap.suffix))
-        portable["roadmap_path"] = "roadmap" + roadmap.suffix
+    portable.pop("roadmap_path", None)
+    portable.update(mesh_path=f"{name}.stl", output_dir="./local_results")
     _write_json(staged / "config.json", portable)
     portable_manifest = {k: v for k, v in manifest.items() if k != "catalog_mesh_path"}
     _write_json(staged / "manifest.json", portable_manifest)

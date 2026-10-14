@@ -4,17 +4,17 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 import time
+from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PyQt6.QtCore import QProcess
-from PyQt6.QtWidgets import QApplication, QFileDialog, QLineEdit, QMessageBox
-
-from dashas_drop_sim.batch import Workpiece, batch_configs, find_roadmap
+from dashas_drop_sim.batch import Workpiece, batch_configs
 from dashas_drop_sim.config import RunConfig
+from PyQt6.QtCore import QProcess
+from PyQt6.QtWidgets import QApplication, QFileDialog, QMessageBox
+
 from dashas_drop_sim import gui
 
 
@@ -27,20 +27,16 @@ def _models(tmp_path, names):
     return paths
 
 
-def test_configs_keep_per_workpiece_roadmaps_and_unique_outputs(tmp_path):
+def test_configs_keep_unique_outputs_and_shared_simulation_settings(tmp_path):
     first, second = _models(tmp_path, ["first", "second"])
-    roadmap = tmp_path / "first_roadmap.yaml"
-    roadmap.write_text("poses: []", encoding="utf-8")
-    base = RunConfig(first, trials=12, workers=3, seed=77, roadmap_path=roadmap,
+    base = RunConfig(first, trials=12, workers=3, seed=77,
                      drop_height_spread_mm=20, lateral_spread_mm=10)
-    configs = batch_configs(base, [Workpiece(first, roadmap), Workpiece(second)], tmp_path / "batch")
+    configs = batch_configs(base, [Workpiece(first), Workpiece(second)], tmp_path / "batch")
 
-    assert [config.roadmap_path for config in configs] == [roadmap, None]
     assert len({config.output_dir for config in configs}) == 2
     assert all((config.trials, config.workers, config.seed) == (12, 3, 77) for config in configs)
     assert all((config.drop_height_spread_mm, config.lateral_spread_mm) == (20, 10) for config in configs)
     assert base.output_dir == Path("results")
-    assert find_roadmap(first) == roadmap
 
 
 def test_entire_queue_is_validated_before_run(tmp_path):
@@ -110,8 +106,6 @@ def test_multiple_file_dialog_populates_queue_and_avoids_duplicates(window, tmp_
     view.batch_add_files_button.click()
     view.batch_add_files_button.click()
     assert view.batch_table.rowCount() == 2
-    view.batch_table.cellWidget(0, 1).findChild(QLineEdit).setText(str(tmp_path / "custom.yaml"))
-    assert view._queued_workpieces()[0].roadmap_path == tmp_path / "custom.yaml"
     assert view.batch_start_button.isEnabled()
 
 
@@ -128,10 +122,10 @@ def test_queue_continues_after_failure_and_keeps_results_per_model(window, tmp_p
     saved = json.loads((view._batch_dir / "batch.json").read_text(encoding="utf-8"))
     assert saved["status"] == "finished"
     assert len({record["config"]["output_dir"] for record in saved["workpieces"]}) == 3
-    view.batch_table.cellWidget(0, 3).click()
+    view.batch_table.cellWidget(0, 2).click()
     assert view.result_table.item(0, 0).text() == "first"
     assert view.mesh_edit.text() == str(paths[0])
-    view.batch_table.cellWidget(2, 3).click()
+    view.batch_table.cellWidget(2, 2).click()
     assert view.result_table.item(0, 0).text() == "second"
 
 
@@ -146,7 +140,7 @@ def test_cancel_stops_current_workpiece_and_leaves_rest_unstarted(window, tmp_pa
 
     assert [record["status"] for record in view._batch_records] == ["cancelled", "pending"]
     assert not view._batch_configs[1].output_dir.exists()
-    assert view.batch_table.item(1, 2).text() == "Nicht gestartet"
+    assert view.batch_table.item(1, 1).text() == "Nicht gestartet"
     saved = json.loads((view._batch_dir / "batch.json").read_text(encoding="utf-8"))
     assert saved["status"] == "cancelled"
 

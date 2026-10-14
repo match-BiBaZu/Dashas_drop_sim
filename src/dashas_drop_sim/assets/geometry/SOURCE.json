@@ -1,0 +1,397 @@
+{
+  "repository": "https://github.com/match-BiBaZu/bibazu_geometry_to_pose",
+  "commit": "41af9d6cb941ded3c86c2e488b28a063a94da607",
+  "notes": "CAD bytes preserved. Roadmaps are not bundled.",
+  "files": [
+    {
+      "source": "Werkstücke_STL_grob\\Df1a.STEP",
+      "path": "cad/Df1a.STEP",
+      "sha256": "1d04309741876192ee3085655c80e10d56bf3fadbfca2eff4c8dd604959481a3"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Df1a.STL",
+      "path": "cad/Df1a.STL",
+      "sha256": "8ef45da56ee7d22fa2aba4ae3cffa0bf39a673d27172a994cdbfe9cb05ad6099"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Df2i.STEP",
+      "path": "cad/Df2i.STEP",
+      "sha256": "f4519173bded6ab77bb2bc2fe51a89111b9b1d7b8162acb34b54da5b0fc7b3d2"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Df2i.STL",
+      "path": "cad/Df2i.STL",
+      "sha256": "3aa35f1bb2b117bf8205d9c424b9058933d67212a3bbd8bd73249bc82122142d"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Df4a.STEP",
+      "path": "cad/Df4a.STEP",
+      "sha256": "d6aacecefb1b303c2a308f5020b923eba0a713724740332bd6fd7476b6c01164"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Df4a.STL",
+      "path": "cad/Df4a.STL",
+      "sha256": "63441ecf57824628fdda55716ecbd09f4328256e13419d76b622c545dfa5f702"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Dk1i.STEP",
+      "path": "cad/Dk1i.STEP",
+      "sha256": "9fe378a2d894eb4a3f09e37ffec357d9f0acfe3fcd3b91ebc5967894eb252342"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Dk1i.STL",
+      "path": "cad/Dk1i.STL",
+      "sha256": "3da2610e5110cf3be1897606d191a245f3ffab9e33fad9130fea6cab1fc17c48"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Dk2a.STEP",
+      "path": "cad/Dk2a.STEP",
+      "sha256": "01ee1155d92f71db23682e23e018f4f9860dfd6bdc69b822163ac5eb81c4a840"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Dk2a.STL",
+      "path": "cad/Dk2a.STL",
+      "sha256": "225bb021851adb82cfac72f2c21daa43a04aa807b319f636eb577d6d295a2ceb"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Dk4i.STEP",
+      "path": "cad/Dk4i.STEP",
+      "sha256": "8086d0053feffda323c6fc61709ebe5cdfaae68292cfe29c9142b127eaf3df8d"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Dk4i.STL",
+      "path": "cad/Dk4i.STL",
+      "sha256": "1a348103b8f27c47280a9ad2b4777e54d9fb3437fad8361da993f90b87c4f8cb"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Dl1a.STEP",
+      "path": "cad/Dl1a.STEP",
+      "sha256": "836ad81e40804299a5869c7c56f1cf42a3189b3057d54ab083cb04419a906ea4"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Dl1a.STL",
+      "path": "cad/Dl1a.STL",
+      "sha256": "17a85e9638816fb25c36ddd65da6c4c9718db6d924b8d7ed5c3aec96d7a0f030"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Dl2i.STEP",
+      "path": "cad/Dl2i.STEP",
+      "sha256": "c1391c851e3f310312ea81e88fa794507cf975124f4c5511edb77988d218e145"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Dl2i.STL",
+      "path": "cad/Dl2i.STL",
+      "sha256": "5226f9340d3759acf29a9ea31944d9550e4c5c05b0151288b463071cd7473adc"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Dl4a.STEP",
+      "path": "cad/Dl4a.STEP",
+      "sha256": "a655077c774a73fbd263557532d69a45bfbebc3b08762a2d931277705cb2fef1"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Dl4a.STL",
+      "path": "cad/Dl4a.STL",
+      "sha256": "fd5e0f229cfe03b51b99337a49e6f0c30bfdfed5fab5d49ae2e33f649e164545"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Kf1i.STEP",
+      "path": "cad/Kf1i.STEP",
+      "sha256": "051a5db6f7ad5f5682b10b5f25aa59e272f7b26138528cdb694510c01e808729"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Kf1i.STL",
+      "path": "cad/Kf1i.STL",
+      "sha256": "e87f5f88d802f8a85a2dee6c85f5306b1dd690860ddf9bb587ec1561e0e4097a"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Kf2a.STEP",
+      "path": "cad/Kf2a.STEP",
+      "sha256": "cc2faf474f46e3185c7f0404a0dc7b9c22af2f24b3bf7aa4f26a09266c76019e"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Kf2a.STL",
+      "path": "cad/Kf2a.STL",
+      "sha256": "cd1bb04dda24ff3aa100827f1042e6abb2459c6bd1301fba1be041b49d1ab30c"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Kf4i.STEP",
+      "path": "cad/Kf4i.STEP",
+      "sha256": "8c9af4a5a6f533b747842a07fc750c70e05518fe0760b86524566d45f4dac668"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Kf4i.STL",
+      "path": "cad/Kf4i.STL",
+      "sha256": "56720a15e28abcf47d6705716e1033a8146c4970e212b7d3f3cd2f33ab3e64ca"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Kk1a.STEP",
+      "path": "cad/Kk1a.STEP",
+      "sha256": "886ef641e30c29df2dbd7a38dcf65cb3179ba50d7d263e66380c163dc3e36482"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Kk1a.STL",
+      "path": "cad/Kk1a.STL",
+      "sha256": "b8417afd1da3e03481f282abec1b30b43f3d1e7e8f4d93d07a58f8c92ef2669b"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Kk2i.STEP",
+      "path": "cad/Kk2i.STEP",
+      "sha256": "9cf89fdf600918db0cd4d84e8835ff4603932fbfe12ea118e3a4150ba7852dff"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Kk2i.STL",
+      "path": "cad/Kk2i.STL",
+      "sha256": "ec6ebb3923fcab8e0a02546aac25cb13f893584b551a81ced4315e1059195ef7"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Kk4a.STEP",
+      "path": "cad/Kk4a.STEP",
+      "sha256": "d49f108e38f0a42a329cc5db9dc6bc9d9aa4c06dde7cad741820ca520e7203d3"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Kk4a.STL",
+      "path": "cad/Kk4a.STL",
+      "sha256": "8b9e742443c8153aca1f5afd3e68562d5cecd7ac9af010f2ede3b0162fa200c1"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Kl1i.STEP",
+      "path": "cad/Kl1i.STEP",
+      "sha256": "2cd78d5543f6b7083f1cf243ca401240997e790c1a6773c0b00b12f563e830ed"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Kl1i.STL",
+      "path": "cad/Kl1i.STL",
+      "sha256": "920ebed11289ff32d7dc0bab88a34e01e0fe5a57dd1fd4abc89360b83f595037"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Kl2a.STEP",
+      "path": "cad/Kl2a.STEP",
+      "sha256": "8ab77703ee51629e70a2582fc0c2a6a544c5287da855c78e0b851dfbbca10cf9"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Kl2a.STL",
+      "path": "cad/Kl2a.STL",
+      "sha256": "f874e82aea3486c1887ad267db840f2cd2899527241407e5f142bc8bcf70a5fe"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Kl4i.STEP",
+      "path": "cad/Kl4i.STEP",
+      "sha256": "e9f7862c9c16e4960699c0bf6f4dbc0513ef820f52a8e182fd9edfb0109732de"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Kl4i.STL",
+      "path": "cad/Kl4i.STL",
+      "sha256": "3b1586a009406e6108f590bbe6316004d9a6a18944d92b64d5f2e5acdff6e831"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Qf1i.STEP",
+      "path": "cad/Qf1i.STEP",
+      "sha256": "45eaaf73e979c4fba53dea14736a0918b7fe6d521c8b90beccf60c630f1fc8d9"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Qf1i.STL",
+      "path": "cad/Qf1i.STL",
+      "sha256": "6c91ddc3f0da826cbbce9e657ee3fcc39f394adf7eaabd5bcde3419747008266"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Qf2a.STEP",
+      "path": "cad/Qf2a.STEP",
+      "sha256": "1147f49259adf6be31003257378c52cea6bb1aec482f1e46cb055ccba1a63b72"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Qf2a.STL",
+      "path": "cad/Qf2a.STL",
+      "sha256": "b1f4448b82583ddeead119df5c4df5764268f553885e474d160a26f577c30219"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Qf4i.STEP",
+      "path": "cad/Qf4i.STEP",
+      "sha256": "1523bc74f5520cbd5476d0ef3fca81479177a7fa786e43857df89c1f5456314b"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Qf4i.STL",
+      "path": "cad/Qf4i.STL",
+      "sha256": "0bd39cf417181214696cff701a76820a538e26db9131bf062df542ea143441a1"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Qk1a.STEP",
+      "path": "cad/Qk1a.STEP",
+      "sha256": "b2c5e2839b5114602437a9d32f0179b1a14f00d502ee68553f2177a175aea29e"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Qk1a.STL",
+      "path": "cad/Qk1a.STL",
+      "sha256": "d9ecf28b323ede64356d933d0f7b91f69848c4f6ba34b742888bbbc1c90461f0"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Qk2i.STEP",
+      "path": "cad/Qk2i.STEP",
+      "sha256": "996115b16eab7edf1bbd78e37c45bcb045e8ed24ed8f40aa44fb222e219291c7"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Qk2i.STL",
+      "path": "cad/Qk2i.STL",
+      "sha256": "1487c64a4824ec3e6d8fd7b49c590dec8ce4306d4761aaece9f2cd2f703891d8"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Qk4a.STEP",
+      "path": "cad/Qk4a.STEP",
+      "sha256": "0cc40e5a316ecdf2c0938e720f40b2a50af51463ff165e8cf96aa6d729b50902"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Qk4a.STL",
+      "path": "cad/Qk4a.STL",
+      "sha256": "c3ee67ba9661bbd25c956c3e6df148d1660d35c8134e8975088267d8f78fa686"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Ql1i.STEP",
+      "path": "cad/Ql1i.STEP",
+      "sha256": "678734d9d92b43185c41aa8e3145f2cd0dcfd27ff1f85e211998c65cef4a1b86"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Ql1i.STL",
+      "path": "cad/Ql1i.STL",
+      "sha256": "987c1187181172a4bd0b02265dd90c29c95f9ec8839a0515d2fbd5cc2245544c"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Ql2a.STEP",
+      "path": "cad/Ql2a.STEP",
+      "sha256": "a2b0dce951c4d2b9de8e55d5899daf5002e4dd4c01f15536a4e864ec6b17d229"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Ql2a.STL",
+      "path": "cad/Ql2a.STL",
+      "sha256": "3b0433b3546a7c2f504684c37e04f9d5001fa445558a74228864cf17ec4725c4"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Ql4i.STEP",
+      "path": "cad/Ql4i.STEP",
+      "sha256": "1e1b3a5ae18460dc632c84ea98b85f84c3c37b99ddbe0130089cd07bb5e0e109"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Ql4i.STL",
+      "path": "cad/Ql4i.STL",
+      "sha256": "56d6ffc478806601b41f53c949e98b922b4b0e8bcadb1e8b6b62deeeea417ae5"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Rf1a.STEP",
+      "path": "cad/Rf1a.STEP",
+      "sha256": "cd51ca38e1f55b7a444ab1ba99d9c18d21d925bd6772b98537ae37680c9ad510"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Rf1a.STL",
+      "path": "cad/Rf1a.STL",
+      "sha256": "130bda10a9a24b2a8f263fb49c875733e7d544ed293922498c5c415fd3dfea39"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Rf2i.STEP",
+      "path": "cad/Rf2i.STEP",
+      "sha256": "c63e77e343a730796fb6b11bef2a3258c5506e74c19b8fd4ac2c9d4ffa7f53bd"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Rf2i.STL",
+      "path": "cad/Rf2i.STL",
+      "sha256": "6611ee5b1d11672c0e8f6c8ff459428f914cc1e24fa7c903522aeb21ce449668"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Rf3a.STEP",
+      "path": "cad/Rf3a.STEP",
+      "sha256": "6b2f6faa51e9c50fa6bb4ca6dd354fc23fb1ee3a4d8a9816f76307dc1f0a300d"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Rf3a.STL",
+      "path": "cad/Rf3a.STL",
+      "sha256": "f1d0c3e35966ce3f2ab6a00848e0672eead5c3faed6ac3c2c71599e04328de18"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Rf4i.STEP",
+      "path": "cad/Rf4i.STEP",
+      "sha256": "24b22d4550da264056108d5d9e16e92635f8fec004171bac2751fc7463f38044"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Rf4i.STL",
+      "path": "cad/Rf4i.STL",
+      "sha256": "32931a56610683b5008af43f249285b7020566283292fd1cde2bc0dda0fbab3d"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Rk1a.STEP",
+      "path": "cad/Rk1a.STEP",
+      "sha256": "4b319aef0f015bc42839978dba0d6c5688b3a2e0a5b401b71cd5d50d085dca1a"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Rk1a.STL",
+      "path": "cad/Rk1a.STL",
+      "sha256": "f707cddf3a9c7e90a1dd8751982a4add17d0be28b4cdc8bab7eba04d9544ad0e"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Rk2i.STEP",
+      "path": "cad/Rk2i.STEP",
+      "sha256": "b88812d28c14cec11076fe294a1a2514ec4e88368cb04d37f7bbba0250bf91e6"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Rk2i.STL",
+      "path": "cad/Rk2i.STL",
+      "sha256": "a345b49394e9deaf218011ad521dcef7df5f00a42d9e35f938aa4789c6a7e9e4"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Rk3a.STEP",
+      "path": "cad/Rk3a.STEP",
+      "sha256": "d1746a86b0df6fada879e22d3be58a3124fd7f1ce583b566d312a24c3230f073"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Rk3a.STL",
+      "path": "cad/Rk3a.STL",
+      "sha256": "7ea84f90d1f61c9f5eb62b3422d79c39ebfbf3fe4be5856f024515fbfcf06d2a"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Rk4i.STEP",
+      "path": "cad/Rk4i.STEP",
+      "sha256": "6aa0b6f1b6167c4ae80e1054258be7578410164259bab978ba5ba48786bd20f1"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Rk4i.STL",
+      "path": "cad/Rk4i.STL",
+      "sha256": "fc3c92557fa2d2f186ac63153a578dd4ce7ad1778c7feef4dd7d5c4340371c48"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Rl1a.STEP",
+      "path": "cad/Rl1a.STEP",
+      "sha256": "bc5189c7ca0237a4dbccd0c996ad6d219651b1c0ebda31e6959b666683f02350"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Rl1a.STL",
+      "path": "cad/Rl1a.STL",
+      "sha256": "c1c451567811fd06e5ff20ff1d1636c5c9e6edf195ed7188dfda97a20023b99b"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Rl2i.STEP",
+      "path": "cad/Rl2i.STEP",
+      "sha256": "9d99df7ae0801eb259210c283da5e95a4bacd486420463b0008e41eeeb362411"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Rl2i.STL",
+      "path": "cad/Rl2i.STL",
+      "sha256": "3d54a53a22845fa6f361763dbe039032f99677e0cd3ee3213c42473f04eb0027"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Rl3a.STEP",
+      "path": "cad/Rl3a.STEP",
+      "sha256": "06d9596c2f2e57b2daff7cab2bcc37301dc379a7763104b6aa8c54940caae3a9"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Rl3a.STL",
+      "path": "cad/Rl3a.STL",
+      "sha256": "cfc3d8844e367f6562947b8a0d61f2ab13522a5aebcaa64a8fbefe031ab18e99"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Rl4i.STEP",
+      "path": "cad/Rl4i.STEP",
+      "sha256": "e7a7314189ddaa72291eace2ddf0440d53917de51d66dc4d1e1588937d445340"
+    },
+    {
+      "source": "Werkstücke_STL_grob\\Rl4i.STL",
+      "path": "cad/Rl4i.STL",
+      "sha256": "977b2c33073387038aab03ffdba82772b574768a9e50e6df26fa90f3c40124a8"
+    }
+  ]
+}

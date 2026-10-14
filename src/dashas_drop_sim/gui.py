@@ -15,7 +15,6 @@ from pathlib import Path
 import sys
 import time
 from typing import Any
-import yaml
 
 from PyQt6.QtCore import QProcess, QTimer, Qt
 from PyQt6.QtGui import QCloseEvent, QIcon, QPixmap
@@ -49,10 +48,10 @@ from PyQt6.QtWidgets import (
 )
 
 from .config import RunConfig
-from .batch import Workpiece, batch_configs, find_roadmap
+from .batch import Workpiece, batch_configs
+from .resources import cad_directory, local_geometry_path
 from .catalog import SOURCE_COMMIT, catalog_models
 from .pose_image import render_pose_image
-from .roadmap_reindex import reindex_roadmaps
 from .settings import default_settings_path, load_defaults, save_defaults
 
 
@@ -94,7 +93,6 @@ class DropSimulationWindow(QMainWindow):
         self._output_dir: Path | None = None
         self._run_dir: Path | None = None
         self._mode = ""
-        self._catalog_auto_roadmap: str | None = None
         self._batch_active = False
         self._batch_stop_requested = False
         self._batch_configs: list[RunConfig] = []
@@ -123,13 +121,6 @@ class DropSimulationWindow(QMainWindow):
         file_form.addRow("Werkstückkatalog", self.catalog_combo)
         self.mesh_edit = QLineEdit()
         file_form.addRow("Bauteil (STL oder STEP)", self._path_row(self.mesh_edit, self._choose_mesh))
-        self.roadmap_edit = QLineEdit()
-        self.roadmap_edit.setPlaceholderText("Optional: Roadmap zum Abgleich der Pose-IDs")
-        file_form.addRow("Roadmap", self._path_row(self.roadmap_edit, self._choose_roadmap))
-        self.reindex_button = QPushButton("YAML und JSON nach Häufigkeit neu nummerieren …")
-        self.reindex_button.setToolTip("Eine summary.json wählen und beide Roadmap-Dateien mit neuen Pose-IDs speichern")
-        self.reindex_button.clicked.connect(self._reindex_roadmaps)
-        file_form.addRow("Pose-Nummern", self.reindex_button)
         self.output_edit = QLineEdit(str(_default("output_dir", Path.cwd() / "results")))
         file_form.addRow("Ergebnisordner", self._path_row(self.output_edit, self._choose_output))
         layout.addWidget(files)
@@ -146,7 +137,7 @@ class DropSimulationWindow(QMainWindow):
         self.batch_catalog_button.clicked.connect(self._choose_batch_catalog)
         self.batch_all_button = QPushButton("Alle 39 hinzufügen")
         self.batch_all_button.clicked.connect(lambda: self._add_workpieces([
-            Workpiece(path, find_roadmap(path)) for path in catalog_models().values()]))
+            Workpiece(path) for path in catalog_models().values()]))
         self.batch_add_current_button = QPushButton("Aktuelles Werkstück hinzufügen")
         self.batch_add_current_button.clicked.connect(self._add_current_workpiece)
         self.batch_remove_button = QPushButton("Auswahl entfernen")
@@ -159,12 +150,12 @@ class DropSimulationWindow(QMainWindow):
         for button in self._batch_edit_buttons:
             batch_actions.addWidget(button)
         batch_layout.addLayout(batch_actions)
-        self.batch_table = QTableWidget(0, 4)
-        self.batch_table.setHorizontalHeaderLabels(["Werkstück", "Roadmap (optional)", "Status", "Ergebnisse"])
+        self.batch_table = QTableWidget(0, 3)
+        self.batch_table.setHorizontalHeaderLabels(["Werkstück", "Status", "Ergebnisse"])
         self.batch_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.batch_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.batch_table.horizontalHeader().setStretchLastSection(True)
-        self.batch_table.setColumnWidth(1, 380)
+        self.batch_table.setColumnWidth(0, 220)
         self.batch_table.setMinimumHeight(150)
         batch_layout.addWidget(self.batch_table)
         self.batch_status = QLabel("Keine Werkstücke in der Warteschlange")
@@ -329,7 +320,7 @@ class DropSimulationWindow(QMainWindow):
         export_form.addRow(self.catalog_export_check)
         workspace = Path(__file__).resolve().parents[3]
         self.catalog_repo_edit = QLineEdit(str(workspace / "BiBaZu_StableComponentenPoses"))
-        self.catalog_cad_edit = QLineEdit(str(workspace / "bibazu_geometry_to_pose" / "Werkstücke_STL_grob"))
+        self.catalog_cad_edit = QLineEdit(str(cad_directory()))
         export_form.addRow("Ergebnis-Repo", self._path_row(self.catalog_repo_edit,
             lambda: self._choose_catalog_directory(self.catalog_repo_edit)))
         export_form.addRow("Originale STL-/STEP-Paare", self._path_row(self.catalog_cad_edit,
@@ -457,9 +448,6 @@ class DropSimulationWindow(QMainWindow):
             "CAD-Modelle (*.stl *.STL *.step *.STEP *.stp *.STP);;Alle Dateien (*)",
         )
         if path:
-            if self._catalog_auto_roadmap and self.roadmap_edit.text() == self._catalog_auto_roadmap:
-                self.roadmap_edit.clear()
-            self._catalog_auto_roadmap = None
             self.catalog_combo.setCurrentIndex(0)
             self.mesh_edit.setText(path)
 
@@ -468,7 +456,7 @@ class DropSimulationWindow(QMainWindow):
             self, "Mehrere Werkstücke wählen", self.mesh_edit.text() or str(Path.cwd()),
             "CAD-Modelle (*.stl *.STL *.step *.STEP *.stp *.STP);;Alle Dateien (*)",
         )
-        self._add_workpieces([Workpiece(Path(path), find_roadmap(Path(path))) for path in paths])
+        self._add_workpieces([Workpiece(Path(path)) for path in paths])
 
     def _choose_batch_catalog(self) -> None:
         dialog = QDialog(self)
@@ -493,8 +481,7 @@ class DropSimulationWindow(QMainWindow):
         layout.addLayout(actions)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._add_workpieces([
-                Workpiece(Path(item.data(Qt.ItemDataRole.UserRole)),
-                          find_roadmap(Path(item.data(Qt.ItemDataRole.UserRole))))
+                Workpiece(Path(item.data(Qt.ItemDataRole.UserRole)))
                 for item in models.selectedItems()
             ])
 
@@ -503,8 +490,7 @@ class DropSimulationWindow(QMainWindow):
         if not mesh:
             QMessageBox.warning(self, "Werkstück-Batch", "Bitte ein Werkstück wählen.")
             return
-        roadmap = self.roadmap_edit.text().strip()
-        self._add_workpieces([Workpiece(Path(mesh), Path(roadmap) if roadmap else None)])
+        self._add_workpieces([Workpiece(Path(mesh))])
 
     def _add_workpieces(self, workpieces: list[Workpiece]) -> None:
         if self._process is not None or self._batch_active:
@@ -522,23 +508,13 @@ class DropSimulationWindow(QMainWindow):
             item.setToolTip(str(mesh))
             item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.batch_table.setItem(row, 0, item)
-            edit = QLineEdit(str(workpiece.roadmap_path.expanduser().resolve()) if workpiece.roadmap_path else "")
-            edit.setPlaceholderText("Optional: Roadmap für dieses Werkstück")
-            self.batch_table.setCellWidget(row, 1, self._path_row(edit, lambda _checked=False, field=edit: self._choose_batch_roadmap(field)))
             self._set_batch_status(row, "Bereit")
             result_button = QPushButton("Ergebnisse")
             result_button.setEnabled(False)
-            self.batch_table.setCellWidget(row, 3, result_button)
+            self.batch_table.setCellWidget(row, 2, result_button)
             existing.add(mesh)
         self._update_batch_count()
 
-    def _choose_batch_roadmap(self, edit: QLineEdit) -> None:
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Roadmap für Werkstück wählen", edit.text() or str(Path.cwd()),
-            "Roadmaps (*.yaml *.yml *.json);;Alle Dateien (*)",
-        )
-        if path:
-            edit.setText(path)
 
     def _remove_batch_selection(self) -> None:
         for row in sorted({index.row() for index in self.batch_table.selectedIndexes()}, reverse=True):
@@ -553,21 +529,18 @@ class DropSimulationWindow(QMainWindow):
     def _set_batch_status(self, row: int, text: str) -> None:
         item = QTableWidgetItem(text)
         item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-        self.batch_table.setItem(row, 2, item)
+        self.batch_table.setItem(row, 1, item)
 
     def _queued_workpieces(self) -> list[Workpiece]:
         workpieces = []
         for row in range(self.batch_table.rowCount()):
             path = self.batch_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
-            edit = self.batch_table.cellWidget(row, 1).findChild(QLineEdit)
-            roadmap = edit.text().strip()
-            workpieces.append(Workpiece(Path(path), Path(roadmap) if roadmap else None))
+            workpieces.append(Workpiece(Path(path)))
         return workpieces
 
     def _set_running_controls(self, busy: bool) -> None:
         self.start_button.setEnabled(not busy)
         self.preview_button.setEnabled(not busy)
-        self.reindex_button.setEnabled(not busy)
         self.save_defaults_button.setEnabled(not busy)
         self.catalog_export_group.setEnabled(not busy)
         self.batch_start_button.setEnabled(not busy and self.batch_table.rowCount() > 0)
@@ -581,68 +554,7 @@ class DropSimulationWindow(QMainWindow):
         if path is None:
             return
         self.mesh_edit.setText(str(path))
-        if self._catalog_auto_roadmap and self.roadmap_edit.text() == self._catalog_auto_roadmap:
-            self.roadmap_edit.clear()
-        self._catalog_auto_roadmap = None
-        roadmap = find_roadmap(Path(path))
-        if roadmap is not None:
-            self._catalog_auto_roadmap = str(roadmap)
-            self.roadmap_edit.setText(self._catalog_auto_roadmap)
 
-    def _choose_roadmap(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Roadmap wählen", self.roadmap_edit.text() or str(Path.cwd()),
-            "Roadmaps (*.yaml *.yml *.json);;Alle Dateien (*)",
-        )
-        if path:
-            self.roadmap_edit.setText(path)
-
-    def _reindex_roadmaps(self) -> None:
-        if self._process is not None:
-            return
-        source_text = self.roadmap_edit.text().strip()
-        if not source_text:
-            QMessageBox.warning(self, "Pose-Nummern", "Bitte zuerst eine YAML- oder JSON-Roadmap wählen.")
-            return
-        source = Path(source_text).expanduser().resolve()
-        summary_start = self._run_dir / "summary.json" if self._run_dir else Path(self.output_edit.text().strip())
-        summary_path, _ = QFileDialog.getOpenFileName(
-            self, "Simulationsergebnis wählen", str(summary_start), "Zusammenfassung (summary.json);;JSON (*.json)",
-        )
-        if not summary_path:
-            return
-        destination_start = source.with_name(f"{source.stem}_frequency_ordered{source.suffix}")
-        destination, _ = QFileDialog.getSaveFileName(
-            self, "Neu nummerierte Roadmaps speichern", str(destination_start),
-            "Roadmaps (*.yaml *.yml *.json)",
-        )
-        if not destination:
-            return
-        try:
-            mapping, backups, outputs = reindex_roadmaps(source, Path(summary_path), Path(destination))
-        except (OSError, TypeError, ValueError, yaml.YAMLError) as exc:
-            QMessageBox.warning(self, "Pose-Nummern", str(exc))
-            return
-        selected = Path(destination).expanduser().resolve()
-        self.roadmap_edit.setText(str(selected))
-        for row, workpiece in enumerate(self._queued_workpieces()):
-            if (workpiece.mesh_path == Path(self.mesh_edit.text()).expanduser().resolve()
-                    and workpiece.roadmap_path is not None
-                    and workpiece.roadmap_path.expanduser().resolve() == source):
-                self.batch_table.cellWidget(row, 1).findChild(QLineEdit).setText(str(selected))
-        self._catalog_auto_roadmap = None
-        self.status_label.setText("Roadmaps neu nummeriert; Ergebnisse zeigen bisherige IDs")
-        self._log_line(f"{len(mapping)} Posen neu nummeriert: {outputs[0]} und {outputs[1]}")
-        self._log_line("Pose-IDs (alt → neu): " + ", ".join(
-            f"{old_id} → {new_id}" for old_id, new_id in sorted(mapping.items(), key=lambda item: item[1])
-        ))
-        for backup in backups:
-            self._log_line(f"Sicherung: {backup}")
-        QMessageBox.information(
-            self, "Pose-Nummern",
-            f"{len(mapping)} Posen nach Häufigkeit neu nummeriert. YAML und JSON wurden gespeichert.\n"
-            "Die angezeigten Ergebnisse verwenden noch die bisherigen Pose-Nummern.",
-        )
 
     def _choose_output(self) -> None:
         path = QFileDialog.getExistingDirectory(
@@ -687,7 +599,7 @@ class DropSimulationWindow(QMainWindow):
         try:
             parameters = self._parameter_values()
             inputs = {name: str(Path(edit.text().strip()).expanduser().resolve()) if edit.text().strip() else ""
-                      for name, edit in (("mesh_path", self.mesh_edit), ("roadmap_path", self.roadmap_edit),
+                      for name, edit in (("mesh_path", self.mesh_edit),
                                          ("output_dir", self.output_edit), ("catalog_repo", self.catalog_repo_edit),
                                          ("catalog_cad_dir", self.catalog_cad_edit),
                                          ("observed_catalog_path", self.observed_catalog_edit))}
@@ -724,12 +636,15 @@ class DropSimulationWindow(QMainWindow):
             self.roughness_model_combo.setCurrentIndex(self.roughness_model_combo.findData(parameters["roughness_model"]))
         if "disturbance_levels_mm" in parameters:
             self.levels_edit.setText(", ".join(str(value) for value in parameters["disturbance_levels_mm"]))
-        for name, edit in (("mesh_path", self.mesh_edit), ("roadmap_path", self.roadmap_edit),
+        for name, edit in (("mesh_path", self.mesh_edit),
                            ("output_dir", self.output_edit), ("catalog_repo", self.catalog_repo_edit),
                            ("catalog_cad_dir", self.catalog_cad_edit),
                            ("observed_catalog_path", self.observed_catalog_edit)):
             if name in data["inputs"]:
-                edit.setText(data["inputs"][name])
+                value = data["inputs"][name]
+                if value and name in {"mesh_path", "catalog_cad_dir"}:
+                    value = str(local_geometry_path(value))
+                edit.setText(value)
         self.catalog_export_check.setChecked(bool(data["inputs"].get("catalog_repo")))
         previous = self.catalog_combo.blockSignals(True)
         self.catalog_combo.setCurrentIndex(max(0, self.catalog_combo.findData(self.mesh_edit.text())))
@@ -745,10 +660,6 @@ class DropSimulationWindow(QMainWindow):
             raise ValueError("Bitte einen Ergebnisordner wählen.")
         config = RunConfig(
             mesh_path=Path(mesh).expanduser().resolve(),
-            roadmap_path=workpiece.roadmap_path if workpiece else (
-                Path(self.roadmap_edit.text().strip()).expanduser().resolve()
-                if self.roadmap_edit.text().strip() else None
-            ),
             output_dir=Path(output).expanduser().resolve(),
             observed_catalog_path=Path(self.observed_catalog_edit.text()).expanduser().resolve()
                 if self.observed_catalog_edit.text().strip() else None,
@@ -833,7 +744,7 @@ class DropSimulationWindow(QMainWindow):
         self._log_line(f"Werkstück-Batch: {batch_dir}")
         for row in range(self.batch_table.rowCount()):
             self._set_batch_status(row, "Wartet")
-            self.batch_table.cellWidget(row, 3).setEnabled(False)
+            self.batch_table.cellWidget(row, 2).setEnabled(False)
         self._set_running_controls(True)
         self._persist_batch()
         self._advance_batch()
@@ -864,8 +775,6 @@ class DropSimulationWindow(QMainWindow):
         self._batch_records[self._batch_index]["status"] = "running"
         self._persist_batch()
         self.mesh_edit.setText(str(config.mesh_path))
-        self.roadmap_edit.setText(str(config.roadmap_path or ""))
-        self._catalog_auto_roadmap = None
         self._log_line(f"Werkstück {self._batch_index + 1}: {config.mesh_path}")
         if not self._launch_config(config, "run"):
             self._record_batch_result("failed", 2)
@@ -890,7 +799,7 @@ class DropSimulationWindow(QMainWindow):
             config = self._batch_configs[self._batch_index]
             run_dir = self._run_dir
             button.clicked.connect(lambda _checked=False, settings=config, path=run_dir: self._show_batch_result(settings, path))
-            self.batch_table.setCellWidget(self._batch_index, 3, button)
+            self.batch_table.setCellWidget(self._batch_index, 2, button)
         self._persist_batch()
 
     def _finish_batch(self) -> None:
@@ -912,8 +821,6 @@ class DropSimulationWindow(QMainWindow):
         if self._process is not None or self._batch_active:
             return
         self.mesh_edit.setText(str(config.mesh_path))
-        self.roadmap_edit.setText(str(config.roadmap_path or ""))
-        self._catalog_auto_roadmap = None
         self._run_dir = run_dir
         self._output_dir = config.output_dir
         self._run_started_at = 0
@@ -1206,9 +1113,9 @@ class DropSimulationWindow(QMainWindow):
         fields = (
             ("Versuch", data["trial"] + 1 if isinstance(data.get("trial"), int) else None),
             ("Status", data.get("status")),
-            ("Roadmap-Pose", data.get("roadmap_pose_id")),
+            ("Beobachtete Pose", data.get("roadmap_pose_id")),
             ("Zuordnung", data.get("match_status")),
-            ("Abstand zur Roadmap-Pose (°)", data.get("match_distance_deg")),
+            ("Abstand zur beobachteten Pose (°)", data.get("match_distance_deg")),
             ("Seed", data.get("seed")),
             ("Gezogene Abwurfhöhe (mm)", data.get("actual_drop_height_mm")),
             ("Gezogene Querposition (mm)", data.get("actual_lateral_mm")),

@@ -8,7 +8,7 @@ from pathlib import Path
 from .config import RunConfig
 
 
-INPUT_KEYS = ("mesh_path", "roadmap_path", "output_dir", "catalog_repo", "catalog_cad_dir", "observed_catalog_path")
+INPUT_KEYS = ("mesh_path", "output_dir", "catalog_repo", "catalog_cad_dir", "observed_catalog_path")
 PARAMETER_KEYS = frozenset(field.name for field in fields(RunConfig)) - frozenset(INPUT_KEYS)
 
 

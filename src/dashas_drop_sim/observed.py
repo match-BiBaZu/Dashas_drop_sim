@@ -18,7 +18,6 @@ class ObservedPoseResolver(PoseResolver):
         if expected and expected != _sha256(mesh_path):
             raise ValueError("Observed catalog STL SHA-256 differs from the selected mesh.")
         self.mesh_path = self.original_mesh_path = Path(mesh_path)
-        self.roadmap_path = None
         self.cache_hit = False
         descriptor = self.data.get("recognition", {})
         if descriptor.get("quaternion_order", "xyzw") != "xyzw" or descriptor.get("rotation", "part_to_chute") != "part_to_chute":

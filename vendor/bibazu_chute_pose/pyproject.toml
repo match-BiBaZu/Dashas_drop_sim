@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "bibazu-chute-pose"
+version = "0.1.0"
+description = "Deterministic geometry and stability analysis for parts in a doubly inclined chute"
+requires-python = ">=3.11"
+dependencies = [
+    "matplotlib>=3.8,<4",
+    "networkx>=3.2,<4",
+    "numpy>=1.26,<3",
+    "scipy>=1.11,<2",
+    "trimesh>=4,<6",
+]
+
+[project.optional-dependencies]
+gui = ["PyQt6>=6.7,<7"]
+dev = ["pytest>=8,<10"]
+step = ["cadquery-ocp>=7.8,<8"]
+
+[project.scripts]
+chute-pose = "chute_pose.cli:main"
+chute-pose-gui = "chute_pose.gui:main"
+chute-pose-generate = "chute_pose.generate:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/chute_pose"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

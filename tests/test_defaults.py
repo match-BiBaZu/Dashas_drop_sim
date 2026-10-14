@@ -5,10 +5,9 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication, QMessageBox
-
 from dashas_drop_sim.catalog import catalog_models
 from dashas_drop_sim.gui import DropSimulationWindow
+from PyQt6.QtWidgets import QApplication, QMessageBox
 
 
 def test_save_parameters_without_model_and_reload_on_gui_restart(tmp_path, monkeypatch):
@@ -99,14 +98,12 @@ def test_invalid_saved_range_keeps_gui_usable(tmp_path):
         del app
 
 
-def test_saved_catalogue_model_keeps_explicit_roadmap(tmp_path):
+def test_saved_catalogue_model_reopens_without_roadmap_controls(tmp_path):
     app = QApplication.instance() or QApplication([])
     path = tmp_path / "gui_defaults.json"
-    roadmap = tmp_path / "manual_roadmap.yaml"
     window = DropSimulationWindow(settings_path=path)
     try:
         window.catalog_combo.setCurrentIndex(window.catalog_combo.findText("Qk1a"))
-        window.roadmap_edit.setText(str(roadmap))
         window.save_defaults_button.click()
     finally:
         window.close()
@@ -114,7 +111,8 @@ def test_saved_catalogue_model_keeps_explicit_roadmap(tmp_path):
     try:
         assert reopened.mesh_edit.text() == str(catalog_models()["Qk1a"])
         assert reopened.catalog_combo.currentText() == "Qk1a"
-        assert reopened.roadmap_edit.text() == str(roadmap)
+        assert not hasattr(reopened, "roadmap_edit")
+        assert not hasattr(reopened, "reindex_button")
     finally:
         reopened.close()
         del app
