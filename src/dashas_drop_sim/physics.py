@@ -192,16 +192,27 @@ class ChuteSimulator:
             )
 
         pairs = ET.SubElement(root, "contact")
+        torsional_m = cfg.contact_torsional_friction_mm / 1000
+        rolling_m = cfg.contact_rolling_friction_mm / 1000
         for index in range(len(part.collision_mesh_paths)):
             geom = f"part_collision_{index}"
             for surface, mu in (("belt_floor", cfg.mu_belt), ("ptfe_wall", cfg.mu_wall)):
                 attributes = {
                     "geom1": geom, "geom2": surface,
-                    "condim": "1" if mu == 0 else "6",
-                    "solref": "0.005 1.2",
+                    "condim": ("1" if mu == 0 else "6" if rolling_m > 0
+                               else "4" if torsional_m > 0 else "3"),
+                    # Positive solref values are (time constant, damping
+                    # ratio), not a coefficient of restitution. Ratios below
+                    # one permit rebound; the legacy value 1.2 is overdamped.
+                    "solref": _numbers([cfg.contact_time_constant_s,
+                                        cfg.contact_damping_ratio]),
                 }
                 if mu > 0:
-                    attributes["friction"] = _numbers([mu, mu, 0.005, 0.0001, 0.0001])
+                    # MuJoCo's rotational coefficients have units of metres:
+                    # torsion is an effective contact-patch size, rolling an
+                    # effective deformation length, rather than sliding mu.
+                    attributes["friction"] = _numbers([mu, mu, torsional_m,
+                                                      rolling_m, rolling_m])
                 ET.SubElement(pairs, "pair", **attributes)
         xml = ET.tostring(root, encoding="unicode")
         try:
@@ -298,6 +309,39 @@ class ChuteSimulator:
                                      - np.mean(cross_positions[:width], axis=0)) / duration
         return bool(cross_speed <= 0.001)
 
+    def _update_roughness_markers(self, viewer, roughness) -> None:
+        """Show contact and +X force direction; marker length is schematic."""
+        scene = getattr(viewer, "user_scn", None)
+        if scene is None:
+            return
+        with viewer.lock():
+            scene.ngeom = 0
+            if roughness is None or not roughness.events or self.config.roughness_model != "weight_force":
+                return
+            event = roughness.events[-1]
+            age = self.data.time - event["time_s"]
+            if age > max(0.25, event.get("actual_duration_s", 0) + 0.1):
+                return
+            point = self.R_world_chute @ (np.asarray(event.get("last_contact_pos_chute_mm", event["contact_pos_chute_mm"])) / 1000)
+            active = event.get("pulse_status") == "active"
+            color = np.array([1, 0.15 if active else 0.8, 0.05, 1], dtype=np.float32)
+            if scene.maxgeom < 3:
+                return
+            mujoco.mjv_initGeom(scene.geoms[0], mujoco.mjtGeom.mjGEOM_SPHERE,
+                               np.array([0.002, 0.002, 0.002]), point, np.eye(3).ravel(), color)
+            # Lift the schematic arrow above the part so a contact underneath
+            # the solid cannot hide it. A leader connects it to the real point.
+            arrow_origin = point + np.array([0, 0, max(0.04, self.part.radius_m * 2)])
+            mujoco.mjv_initGeom(scene.geoms[1], mujoco.mjtGeom.mjGEOM_ARROW,
+                               np.zeros(3), arrow_origin, np.eye(3).ravel(), color)
+            mujoco.mjv_connector(scene.geoms[1], mujoco.mjtGeom.mjGEOM_ARROW, 0.0015,
+                                 arrow_origin, arrow_origin + self.R_world_chute[:, 0] * 0.035)
+            scene.geoms[1].label = f"{event['force_fraction'] * 100:g}% mg, max {event['configured_duration_s'] * 1000:g} ms (+X)"
+            mujoco.mjv_initGeom(scene.geoms[2], mujoco.mjtGeom.mjGEOM_LINE,
+                               np.zeros(3), point, np.eye(3).ravel(), color)
+            mujoco.mjv_connector(scene.geoms[2], mujoco.mjtGeom.mjGEOM_LINE, 2, point, arrow_origin)
+            scene.ngeom = 3
+
     def _run_until_end(
         self,
         *,
@@ -327,8 +371,10 @@ class ChuteSimulator:
         wall_start = time.perf_counter() if viewer is not None else 0.0
         roughness = (ContactRoughness(cfg, self.model, self.R_world_chute,
                                      self.floor_id, self.wall_id, seed)
-                     if cfg.roughness_enabled and (cfg.roughness_wall_height_mm > 0
-                                                   or cfg.roughness_belt_height_mm > 0) else None)
+                     if cfg.roughness_enabled and (
+                         (cfg.roughness_model == "weight_force" and cfg.roughness_force_fraction > 0)
+                         or (cfg.roughness_model != "weight_force" and (
+                             cfg.roughness_wall_height_mm > 0 or cfg.roughness_belt_height_mm > 0))) else None)
         roughness_stride = max(1, round(0.005 / cfg.timestep_s))
         belt_profile = BeltSpeedProfile(cfg, seed) if cfg.belt_speed_variation_mm_s > 0 else None
         profile_start_s = float(data.time)
@@ -341,7 +387,11 @@ class ChuteSimulator:
             if belt_profile is not None:
                 self.model.geom_surfacevel[self.floor_id, 0] = (
                     belt_profile.speed_mm_s(data.time - profile_start_s) / 1000)
+            if roughness is not None:
+                roughness.prepare_step(data, cfg.timestep_s)
             mujoco.mj_step(self.model, data)
+            if roughness is not None:
+                roughness.finish_step(data, cfg.timestep_s)
             step += 1
             if roughness is not None and step % roughness_stride == 0:
                 roughness.advance(data, roughness_stride * cfg.timestep_s)
@@ -351,6 +401,7 @@ class ChuteSimulator:
                 viewer.cam.lookat[:] = self.R_world_chute @ np.array(
                     [self._local_position(data)[0], 0.075, 0.075]
                 )
+                self._update_roughness_markers(viewer, roughness)
                 viewer.sync()
                 remaining = data.time - (time.perf_counter() - wall_start)
                 if remaining > 0:
@@ -388,7 +439,10 @@ class ChuteSimulator:
         else:
             status = ("settled_stationary" if self._window_is_settled(history) else "unsettled_stationary") if belt_m_s == 0 else "timeout"
         final_pos = self._local_position(data)
+        if roughness is not None:
+            roughness.finalize(data)
         if viewer is not None and viewer.is_running():
+            self._update_roughness_markers(viewer, roughness)
             viewer.sync()
         floor, wall = self._contact_flags(data)
         if trace_stable and self._window_is_settled(history) and data.time > last_trace_time + 0.01:

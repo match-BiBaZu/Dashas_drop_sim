@@ -241,14 +241,15 @@ class DropSimulationWindow(QMainWindow):
         form.addRow("", note)
         layout.addWidget(parameters)
 
-        roughness_group = QGroupBox("Kratzer und Dellen")
+        roughness_group = QGroupBox("Unebenheiten und zufällige Kontaktkräfte")
         roughness_layout = QVBoxLayout(roughness_group)
-        self.roughness_check = QCheckBox("Zufällige Unebenheitsimpulse aktivieren")
+        self.roughness_check = QCheckBox("Zufällige Kontaktstörungen aktivieren")
         self.roughness_check.setChecked(bool(_default("roughness_enabled", False)))
         roughness_layout.addWidget(self.roughness_check)
         self.roughness_model_combo = QComboBox()
         self.roughness_model_combo.addItem("Kontaktimpulse entlang der Rutsche", "longitudinal_traction")
         self.roughness_model_combo.addItem("Flache Unebenheitsstöße mit Reibung", "microfacet")
+        self.roughness_model_combo.addItem("Kraftpulse als Anteil der Gewichtskraft", "weight_force")
         self.roughness_model_combo.setCurrentIndex(max(0, self.roughness_model_combo.findData(
             _default("roughness_model", "longitudinal_traction"))))
         self.roughness_model_combo.setEnabled(self.roughness_check.isChecked())
@@ -274,14 +275,30 @@ class DropSimulationWindow(QMainWindow):
         self.roughness_check.toggled.connect(
             lambda checked: [spin.setEnabled(checked) for spin in self.roughness_spins.values()])
         roughness_layout.addLayout(roughness_grid)
+        self.force_fraction_spin = _spin(_default("roughness_force_fraction", 0.1) * 100, 0, 100, 1, 1)
+        self.force_fraction_spin.setSuffix(" %")
+        self.force_duration_spin = _spin(_default("roughness_force_duration_s", 0.05), 0.001, 1, 3, 0.01)
+        self.force_duration_spin.setSuffix(" s")
+        self.force_interval_spin = _spin(_default("roughness_force_interval_s", 0.2), 0.001, 10, 3, 0.05)
+        self.force_interval_spin.setSuffix(" s")
+        self.force_panel = QWidget()
+        force_form = QFormLayout(self.force_panel)
+        force_form.addRow("Kraftanteil an Gewichtskraft", self.force_fraction_spin)
+        force_form.addRow("Pulsdauer", self.force_duration_spin)
+        force_form.addRow("Mittlere Pause zwischen Pulsen", self.force_interval_spin)
+        roughness_layout.addWidget(self.force_panel)
+        self.roughness_model_combo.currentIndexChanged.connect(self._update_roughness_controls)
+        self.roughness_check.toggled.connect(self._update_roughness_controls)
         roughness_note = QLabel(
-            "Statistisches Ersatzmodell: Kontaktimpulse entlang der Rutsche oder flache Unebenheitsstöße. "
-            "Normalkraft, Relativgeschwindigkeit und Höhe/Länge bestimmen die Impulsstärke, "
-            "der Abstand die Häufigkeit entlang des relativen Gleitwegs. "
-            "Wandwerte sind Startschätzungen; 0 mm Höhe schaltet eine Fläche aus."
+            "Kraftpulse: F = Anteil × Masse × 9,81 m/s², entlang der Rutsche (+X) an einem zufälligen "
+            "belasteten Kontakt mit Band oder Wand. Die Pausen sind zufällig; auch ohne Schlupf "
+            "wirksam. Kontaktverlust beendet den Puls. Das Modell führt Energie zu und muss "
+            "an realen Versuchen abgeglichen werden. In den beiden Rauheitsmodellen gelten "
+            "stattdessen Kantenhöhe, Kantenlänge und Abstand entlang des Gleitwegs."
         )
         roughness_note.setWordWrap(True)
         roughness_layout.addWidget(roughness_note)
+        self._update_roughness_controls()
         layout.addWidget(roughness_group)
 
         advanced = QGroupBox("Erweiterte Simulationsparameter")
@@ -298,6 +315,20 @@ class DropSimulationWindow(QMainWindow):
         self.timestep_spin = _spin(_default("timestep_s", 0.002), 0.0001, 0.01, 5, 0.0001)
         self.timestep_spin.setSuffix(" s")
         advanced_form.addRow("Zeitschritt", self.timestep_spin)
+        self.contact_time_spin = _spin(_default("contact_time_constant_s", 0.005),
+                                       2 * self.timestep_spin.value(), 0.1, 5, 0.001)
+        self.contact_time_spin.setSuffix(" s")
+        self.timestep_spin.valueChanged.connect(lambda value: self.contact_time_spin.setMinimum(2 * value))
+        advanced_form.addRow("Kontakt-Zeitkonstante", self.contact_time_spin)
+        self.contact_damping_spin = _spin(_default("contact_damping_ratio", 1.2), 0.1, 2, 2, 0.05)
+        self.contact_damping_spin.setToolTip("Unter 1: federnder Kontakt; 1: kritisch gedämpft; über 1: überdämpft. Kein direkter Rückprallkoeffizient.")
+        advanced_form.addRow("Kontakt-Dämpfungsverhältnis", self.contact_damping_spin)
+        self.torsional_friction_spin = _spin(_default("contact_torsional_friction_mm", 5), 0, 20, 3, 0.1)
+        self.torsional_friction_spin.setSuffix(" mm")
+        self.rolling_friction_spin = _spin(_default("contact_rolling_friction_mm", 0.1), 0, 5, 3, 0.01)
+        self.rolling_friction_spin.setSuffix(" mm")
+        advanced_form.addRow("Torsionsreibung (wirksame Länge)", self.torsional_friction_spin)
+        advanced_form.addRow("Rollreibung (wirksame Länge)", self.rolling_friction_spin)
         levels = _default("disturbance_levels_mm", (0.5, 1.0, 2.0))
         self.levels_edit = QLineEdit(", ".join(str(v) for v in levels))
         self.levels_edit.setToolTip("Kommagetrennte Stufen für die reproduzierbaren Störversuche")
@@ -646,8 +677,23 @@ class DropSimulationWindow(QMainWindow):
             "density_g_cm3": self.density_spin, "mu_belt": self.belt_mu_spin, "mu_wall": self.wall_mu_spin,
             "alpha_deg": self.alpha_spin, "beta_deg": self.beta_spin,
             "length_mm": self.length_spin, "timestep_s": self.timestep_spin,
+            "contact_time_constant_s": self.contact_time_spin,
+            "contact_damping_ratio": self.contact_damping_spin,
+            "contact_torsional_friction_mm": self.torsional_friction_spin,
+            "contact_rolling_friction_mm": self.rolling_friction_spin,
+            "roughness_force_fraction": self.force_fraction_spin,
+            "roughness_force_duration_s": self.force_duration_spin,
+            "roughness_force_interval_s": self.force_interval_spin,
             **self.roughness_spins,
         }
+
+    def _update_roughness_controls(self, *_args) -> None:
+        enabled = self.roughness_check.isChecked()
+        force_mode = self.roughness_model_combo.currentData() == "weight_force"
+        for spin in self.roughness_spins.values():
+            spin.setEnabled(enabled and not force_mode)
+        self.force_panel.setVisible(force_mode)
+        self.force_panel.setEnabled(enabled)
 
     def _parameter_values(self) -> dict[str, Any]:
         level_text = self.levels_edit.text().strip()
@@ -657,7 +703,9 @@ class DropSimulationWindow(QMainWindow):
             raise ValueError("Störstufen bitte als kommagetrennte Zahlen eingeben.") from exc
         if not levels:
             raise ValueError("Mindestens eine Störstufe ist erforderlich.")
-        return {**{name: widget.value() for name, widget in self._parameter_widgets().items()},
+        values = {name: widget.value() for name, widget in self._parameter_widgets().items()}
+        values["roughness_force_fraction"] /= 100
+        return {**values,
                 "compute_stability": self.compute_stability_check.isChecked(),
                 "catalog_push": self.catalog_push_check.isChecked(),
                 "roughness_enabled": self.roughness_check.isChecked(),
@@ -690,7 +738,7 @@ class DropSimulationWindow(QMainWindow):
         parameters = data["parameters"]
         for name, widget in self._parameter_widgets().items():
             if name in parameters:
-                widget.setValue(parameters[name])
+                widget.setValue(parameters[name] * (100 if name == "roughness_force_fraction" else 1))
         if "roughness_enabled" in parameters:
             self.roughness_check.setChecked(parameters["roughness_enabled"])
         self.compute_stability_check.setChecked(parameters.get("compute_stability", True))
@@ -703,6 +751,8 @@ class DropSimulationWindow(QMainWindow):
                            ("output_dir", self.output_edit), ("catalog_repo", self.catalog_repo_edit),
                            ("catalog_cad_dir", self.catalog_cad_edit)):
             if name in data["inputs"]:
+                if name == "catalog_repo" and not data["inputs"][name]:
+                    continue
                 edit.setText(data["inputs"][name])
         self.catalog_export_check.setChecked(bool(data["inputs"].get("catalog_repo")))
         previous = self.catalog_combo.blockSignals(True)

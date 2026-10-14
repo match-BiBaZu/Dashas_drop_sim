@@ -45,8 +45,11 @@ def default_cad_dir() -> Path:
 def model_pair(mesh: Path, cad_dir: Path | None = None) -> tuple[Path, Path]:
     """Require the original, byte-identical STL beside the matching source CAD."""
     root = Path(cad_dir or default_cad_dir()).resolve()
-    files = {p.name.casefold(): p for p in root.iterdir() if p.is_file()}
     stem = mesh.stem
+    nested = next((p for p in root.iterdir() if p.is_dir() and p.name.casefold() == stem.casefold()), None)
+    files = {p.name.casefold(): p for p in root.iterdir() if p.is_file()}
+    if nested is not None:
+        files.update({p.name.casefold(): p for p in nested.iterdir() if p.is_file()})
     stl = files.get(f"{stem}.stl".casefold())
     step = files.get(f"{stem}.step".casefold()) or files.get(f"{stem}.stp".casefold())
     if stl is None or step is None:

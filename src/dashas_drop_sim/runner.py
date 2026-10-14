@@ -311,19 +311,42 @@ def build_manifest(config: RunConfig, part: PreparedPart, resolver: PoseResolver
             "lateral_range_mm": [config.lateral_mm - config.lateral_spread_mm,
                                  config.lateral_mm + config.lateral_spread_mm],
         },
+        "contact_response": {
+            "model": "mujoco_positive_solref_time_constant_damping_ratio",
+            "time_constant_s": config.contact_time_constant_s,
+            "damping_ratio": config.contact_damping_ratio,
+            "torsional_friction_mm": config.contact_torsional_friction_mm,
+            "rolling_friction_mm": config.contact_rolling_friction_mm,
+            "interpretation": "Solver contact parameters, not a directly specified restitution coefficient. Uncalibrated material response.",
+        },
         "surface_roughness": {
             "enabled": config.roughness_enabled,
             "model": MODEL_VERSIONS[config.roughness_model],
-            "minimum_sliding_speed_mm_s": MIN_SLIP_M_S * 1000,
-            "sampling_interval_s": max(1, round(0.005 / config.timestep_s)) * config.timestep_s,
+            "minimum_sliding_speed_mm_s": None if config.roughness_model == "weight_force" else MIN_SLIP_M_S * 1000,
+            "sampling_interval_s": (config.timestep_s if config.roughness_model == "weight_force" else
+                                    max(1, round(0.005 / config.timestep_s)) * config.timestep_s),
             "restitution": 0.0 if config.roughness_model == "microfacet" else None,
             "additional_friction": ("Longitudinal traction impulse from an equivalent friction increment mu * height/ramp; duration ramp/abs(longitudinal slip); capped at slip cancellation"
                                     if config.roughness_model == "longitudinal_traction"
-                                    else "Coulomb-limited sliding impulse on the virtual facet; mu from each surface"),
+                                    else "Coulomb-limited sliding impulse on the virtual facet; mu from each surface"
+                                    if config.roughness_model == "microfacet" else None),
             "contact_sampling": ("normal-load times longitudinal-slip-speed weighted active MuJoCo contact points"
                                  if config.roughness_model == "longitudinal_traction"
-                                 else "normal-load times sliding-speed weighted active MuJoCo contact points"),
-            "interpretation": "Uncalibrated stochastic contact impulses per relative sliding distance; not a fixed surface map or resolved scratch geometry. Traction strength is an equivalent friction assumption, not inferred from scratch depth alone.",
+                                 else "normal-load times sliding-speed weighted active MuJoCo contact points"
+                                 if config.roughness_model == "microfacet" else
+                                 "uniform random loaded contact at start; nearest geometric contact on selected surface during pulse; if absent, track nearest geometric contact on another chute surface"),
+            "weight_force": ({
+                "force_fraction": config.roughness_force_fraction,
+                "force_n": config.roughness_force_fraction * part.mass_kg * 9.81,
+                "duration_s": config.roughness_force_duration_s,
+                "mean_pause_s": config.roughness_force_interval_s,
+                "direction_chute": [1, 0, 0],
+                "timing": "exponential waiting times after pulse end; no overlapping pulses; contactless starts skipped",
+                "energy_policy": "Externally driven force can add energy; no passive-friction interpretation",
+            } if config.roughness_model == "weight_force" else None),
+            "interpretation": ("Uncalibrated finite contact force pulses proportional to weight; time-based even at zero slip. Continue through zero solver load only with geometric contact within 0.1 micrometre tolerance; stop on loss of all chute contacts. Not resolved surface topography."
+                               if config.roughness_model == "weight_force" else
+                               "Uncalibrated stochastic contact impulses per relative sliding distance; not a fixed surface map or resolved scratch geometry. Traction strength is an equivalent friction assumption, not inferred from scratch depth alone."),
         },
         "belt_speed_variation": {
             "enabled": config.belt_speed_variation_mm_s > 0,
@@ -495,6 +518,10 @@ def run_experiment(
         "angular_impulse_chute_nms", "belt_speed_mm_s",
         "contact_normal_force_n", "effective_pulse_duration_s", "friction_impulse_limit_ns",
         "body_energy_change_j", "relative_energy_change_j",
+        "force_fraction", "force_n", "configured_duration_s", "actual_duration_s", "pulse_status",
+        "configured_impulse_ns", "energy_semantics",
+        "current_surface", "contact_surface_changes", "last_contact_pos_chute_mm",
+        "last_contact_normal_force_n", "zero_load_duration_s", "geometric_contact_tolerance_mm",
     ], roughness_events)
     _write_csv(run_dir / "stability.csv", [
         "pose_id", "energy_lift_mm", "energy_j", "retained_count", "direction_count",

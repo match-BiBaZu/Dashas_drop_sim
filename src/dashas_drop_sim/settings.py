@@ -13,6 +13,8 @@ PARAMETER_KEYS = frozenset(field.name for field in fields(RunConfig)) - frozense
 
 
 def default_settings_path() -> Path:
+    if path := os.environ.get("DASHAS_DROP_SIM_SETTINGS_PATH"):
+        return Path(path).expanduser().resolve()
     if os.name == "nt":
         root = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
         return root / "BiBaZu" / "DashasDropSim" / "gui_defaults.json"

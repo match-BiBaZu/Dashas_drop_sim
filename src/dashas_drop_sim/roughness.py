@@ -1,9 +1,14 @@
-"""Seeded contact traction changes or micro-impacts during sliding.
+"""Seeded contact disturbances, with explicitly different energy assumptions.
 
 These are encounters per relative sliding distance, not a measured terrain map.
 An inelastic frictional collision with a shallow virtual facet redirects kinetic energy
 at a loaded MuJoCo contact point. The contact Jacobian accounts for the body's
 mass, inertia, orientation and the lever arm of that point.
+
+The optional ``weight_force`` model instead supplies an external force along
+chute +X, F = fraction * mass * 9.81, for a finite duration. It is an active,
+uncalibrated disturbance, not passive surface roughness. Exponential waiting
+times and uniformly sampled loaded belt/wall contacts are independent of slip.
 """
 
 from __future__ import annotations
@@ -17,8 +22,10 @@ from .config import RunConfig
 
 
 MODEL_VERSIONS = {"longitudinal_traction": "longitudinal_contact_traction_v1",
-                  "microfacet": "sliding_frictional_microfacet_v2"}
+                  "microfacet": "sliding_frictional_microfacet_v2",
+                  "weight_force": "weight_scaled_contact_force_v1"}
 MIN_SLIP_M_S = 0.0001  # Suppress contact solver chatter below 0.1 mm/s.
+CONTACT_DISTANCE_TOLERANCE_M = 1e-7  # 0.1 micrometre; not a flight-phase grace distance.
 
 
 def facet_impulse(inverse_response: np.ndarray,
@@ -105,6 +112,270 @@ class _Surface:
     remaining_m: float
 
 
+@dataclass(slots=True)
+class _ForceContact:
+    surface: str
+    geom_id: int
+    point: np.ndarray
+    jacobian: np.ndarray
+    relative_velocity: np.ndarray
+    normal: np.ndarray
+    load_n: float
+    friction: float
+    surface_velocity: np.ndarray
+
+
+@dataclass(slots=True)
+class _WeightPulse:
+    end_s: float
+    body_point: np.ndarray
+    geom_id: int
+    event: dict
+
+
+@dataclass(slots=True)
+class _ForceSegment:
+    event: dict
+    contact: _ForceContact
+    duration_s: float
+    end_s: float
+    angular_impulse: np.ndarray
+    completes_pulse: bool
+
+
+class WeightForceRoughness:
+    """Start a finite force at a loaded contact and continue while touching.
+
+    ``prepare_step`` adds only this model's generalized force, and
+    ``finish_step`` subtracts that same contribution without resetting other
+    applied forces. First/last partial steps use their time-averaged force so
+    the integrated impulse is F * actual_duration, even for nonintegral dt.
+    Instantaneous zero normal load does not end a geometrically touching
+    contact. If the selected surface separates, the point can move to a
+    touching contact on the other chute surface, recording that change. Missing
+    chute contacts or gaps above 0.1 micrometre do end the pulse.
+    Gating is evaluated at step start; loss within a physics step is detected
+    at the next step. The force work is a trapezoidal estimate of
+    generalized power, not a claimed total kinetic-energy change.
+    """
+
+    def __init__(self, config: RunConfig, model: mujoco.MjModel,
+                 rotation_world_chute: np.ndarray, floor_id: int, wall_id: int,
+                 seed: int):
+        self.model = model
+        self.rotation = np.asarray(rotation_world_chute)
+        self.longitudinal = self.rotation[:, 0]
+        self.floor_id = floor_id
+        self.body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "part")
+        mass = float(model.body_mass[self.body_id])
+        self.force_fraction = config.roughness_force_fraction
+        self.force_n = self.force_fraction * mass * 9.81
+        self.duration_s = config.roughness_force_duration_s
+        self.interval_s = config.roughness_force_interval_s
+        self.load_threshold = mass * 9.81 * 1e-6
+        self.surfaces = (
+            ("wall", wall_id, self.rotation @ np.array([0., 1., 0.]), config.mu_wall),
+            ("belt", floor_id, self.rotation @ np.array([0., 0., 1.]), config.mu_belt),
+        )
+        streams = np.random.SeedSequence([seed, 0xB1BA2, 0xF0]).spawn(2)
+        self.time_rng = np.random.default_rng(streams[0])
+        self.contact_rng = np.random.default_rng(streams[1])
+        self.events: list[dict] = []
+        self.next_start_s: float | None = None
+        self.active: _WeightPulse | None = None
+        self._added_force = np.zeros(model.nv)
+        self._segments: list[_ForceSegment] = []
+        self._step_velocity: np.ndarray | None = None
+
+    def _wait(self) -> float:
+        return float(self.time_rng.exponential(self.interval_s))
+
+    def _contacts(self, data: mujoco.MjData, geom_id: int | None = None,
+                  *, loaded_only: bool = True) -> list[_ForceContact]:
+        candidates = []
+        for name, surface_id, normal, friction in self.surfaces:
+            if geom_id is not None and geom_id != surface_id:
+                continue
+            velocity = (data.geom_xmat[surface_id].reshape(3, 3)
+                        @ self.model.geom_surfacevel[surface_id, :3])
+            for index, contact in enumerate(data.contact):
+                if surface_id not in (contact.geom1, contact.geom2):
+                    continue
+                if loaded_only and contact.efc_address < 0:
+                    continue
+                if contact.dist > CONTACT_DISTANCE_TOLERANCE_M:
+                    continue
+                other = contact.geom2 if contact.geom1 == surface_id else contact.geom1
+                if self.model.geom_bodyid[other] != self.body_id:
+                    continue
+                force = np.zeros(6)
+                if contact.efc_address >= 0:
+                    mujoco.mj_contactForce(self.model, data, index, force)
+                if loaded_only and force[0] <= self.load_threshold:
+                    continue
+                point = np.array(contact.pos)
+                jacobian = np.zeros((3, self.model.nv))
+                mujoco.mj_jac(self.model, data, jacobian, None, point, self.body_id)
+                candidates.append(_ForceContact(
+                    name, surface_id, point, jacobian, jacobian @ data.qvel - velocity,
+                    normal, float(force[0]), friction, velocity))
+        return candidates
+
+    def _start_pulse(self, data: mujoco.MjData, contact: _ForceContact, start_s: float) -> None:
+        response = np.zeros((3, self.model.nv))
+        mujoco.mj_solveM(self.model, data, response, np.ascontiguousarray(contact.jacobian))
+        mobility = contact.jacobian @ response.T
+        inverse_mass = float(self.longitudinal @ mobility @ self.longitudinal)
+        relative = contact.relative_velocity
+        point_chute_mm = (self.rotation.T @ contact.point * 1000).tolist()
+        event = {
+            "time_s": start_s, "surface": contact.surface, "model": "weight_force",
+            "current_surface": contact.surface, "contact_surface_changes": [],
+            "force_fraction": self.force_fraction, "force_n": self.force_n,
+            "force_chute_n": (self.rotation.T @ (self.force_n * self.longitudinal)).tolist(),
+            "configured_duration_s": self.duration_s,
+            "configured_impulse_ns": self.force_n * self.duration_s,
+            "actual_duration_s": 0.0, "effective_pulse_duration_s": 0.0,
+            "end_time_s": start_s, "pulse_status": "active",
+            "contact_pos_chute_mm": point_chute_mm,
+            "last_contact_pos_chute_mm": point_chute_mm.copy(),
+            "relative_sliding_speed_mm_s": float(np.linalg.norm(
+                relative - np.dot(relative, contact.normal) * contact.normal) * 1000),
+            "relative_longitudinal_speed_mm_s": float(relative @ self.longitudinal * 1000),
+            "sampled_height_mm": 0.0, "impulse_ns": 0.0,
+            "normal_impulse_ns": 0.0, "friction_impulse_ns": 0.0,
+            "friction_coefficient": contact.friction,
+            "contact_normal_force_n": contact.load_n,
+            "last_contact_normal_force_n": contact.load_n,
+            "zero_load_duration_s": 0.0,
+            "geometric_contact_tolerance_mm": CONTACT_DISTANCE_TOLERANCE_M * 1000,
+            "friction_impulse_limit_ns": 0.0,
+            "impulse_chute_ns": [0.0, 0.0, 0.0],
+            "angular_impulse_chute_nms": [0.0, 0.0, 0.0],
+            "belt_speed_mm_s": float(self.model.geom_surfacevel[self.floor_id, 0] * 1000),
+            "effective_mass_kg": 1 / inverse_mass if inverse_mass > 0 else 0.0,
+            "body_energy_change_j": 0.0, "relative_energy_change_j": 0.0,
+            "energy_semantics": "applied_force_work_trapezoidal",
+        }
+        self.events.append(event)
+        body_rotation = data.xmat[self.body_id].reshape(3, 3)
+        body_point = body_rotation.T @ (contact.point - data.xpos[self.body_id])
+        self.active = _WeightPulse(start_s + self.duration_s, body_point, contact.geom_id, event)
+
+    def _continuing_contact(self, data: mujoco.MjData) -> _ForceContact | None:
+        assert self.active is not None
+        contacts = self._contacts(data, self.active.geom_id, loaded_only=False)
+        if not contacts:
+            contacts = self._contacts(data, loaded_only=False)
+            if not contacts:
+                return None
+        # Keep the force on an actual touching point as rolling changes the
+        # manifold. Instantaneous zero solver load is allowed while geometry
+        # still touches; missing contacts never receive a force.
+        point = (data.xpos[self.body_id]
+                 + data.xmat[self.body_id].reshape(3, 3) @ self.active.body_point)
+        contact = min(contacts, key=lambda candidate: float(np.linalg.norm(candidate.point - point)))
+        if contact.geom_id != self.active.geom_id:
+            self.active.geom_id = contact.geom_id
+            self.active.event["current_surface"] = contact.surface
+            self.active.event["contact_surface_changes"].append({
+                "time_s": float(data.time), "surface": contact.surface})
+        return contact
+
+    def prepare_step(self, data: mujoco.MjData, elapsed_s: float) -> None:
+        if self._step_velocity is not None:
+            raise RuntimeError("finish_step must follow each prepared weight-force step")
+        if elapsed_s <= 0 or not np.isfinite(elapsed_s):
+            raise ValueError("The force step duration must be finite and positive")
+        self._step_velocity = data.qvel.copy()
+        if self.force_n <= 0:
+            return
+        # mj_step's contact manifold is from the previous pre-integration
+        # position. Refresh it before deciding whether this step is supported.
+        mujoco.mj_forward(self.model, data)
+        now, step_end = float(data.time), float(data.time + elapsed_s)
+        if self.next_start_s is None:
+            self.next_start_s = now + self._wait()
+        cursor = now
+        while cursor < step_end - 1e-14:
+            if self.active is None:
+                if self.next_start_s >= step_end - 1e-14:
+                    break
+                start = max(cursor, self.next_start_s)
+                contacts = self._contacts(data)
+                if not contacts:
+                    # A due event in flight is skipped, not postponed until
+                    # impact. Re-sample the waiting time without a force event.
+                    self.next_start_s = start + self._wait()
+                    cursor = start
+                    continue
+                contact = contacts[int(self.contact_rng.integers(len(contacts)))]
+                self._start_pulse(data, contact, start)
+                cursor = start
+            else:
+                contact = self._continuing_contact(data)
+                if contact is None:
+                    self.active.event["pulse_status"] = "contact_lost"
+                    self.active.event["end_time_s"] = cursor
+                    self.active = None
+                    self.next_start_s = cursor + self._wait()
+                    continue
+            assert self.active is not None
+            end = min(step_end, self.active.end_s)
+            duration = max(0.0, end - cursor)
+            impulse = self.force_n * duration * self.longitudinal
+            completes = end >= self.active.end_s - 1e-14
+            if duration > 0:
+                self._added_force += contact.jacobian.T @ (impulse / elapsed_s)
+                self._segments.append(_ForceSegment(
+                    self.active.event, contact, duration, end,
+                    np.cross(contact.point - data.xipos[self.body_id], impulse), completes))
+            cursor = end
+            if completes:
+                self.next_start_s = self.active.end_s + self._wait()
+                self.active = None
+        data.qfrc_applied[:] += self._added_force
+
+    def finish_step(self, data: mujoco.MjData, elapsed_s: float) -> None:
+        if self._step_velocity is None:
+            return
+        data.qfrc_applied[:] -= self._added_force
+        self._added_force[:] = 0
+        average_velocity = 0.5 * (self._step_velocity + data.qvel)
+        for segment in self._segments:
+            event, contact = segment.event, segment.contact
+            impulse = self.force_n * segment.duration_s * self.longitudinal
+            work = float(impulse @ (contact.jacobian @ average_velocity))
+            event["actual_duration_s"] += segment.duration_s
+            event["effective_pulse_duration_s"] = event["actual_duration_s"]
+            event["impulse_ns"] = self.force_n * event["actual_duration_s"]
+            event["impulse_chute_ns"] = (
+                self.rotation.T @ (event["impulse_ns"] * self.longitudinal)).tolist()
+            event["angular_impulse_chute_nms"] = (
+                np.asarray(event["angular_impulse_chute_nms"])
+                + self.rotation.T @ segment.angular_impulse).tolist()
+            event["body_energy_change_j"] += work
+            event["relative_energy_change_j"] += work - float(impulse @ contact.surface_velocity)
+            event["last_contact_pos_chute_mm"] = (self.rotation.T @ contact.point * 1000).tolist()
+            event["last_contact_normal_force_n"] = contact.load_n
+            if contact.load_n <= self.load_threshold:
+                event["zero_load_duration_s"] += segment.duration_s
+            event["end_time_s"] = segment.end_s
+            if segment.completes_pulse:
+                event["pulse_status"] = "completed"
+        self._segments.clear()
+        self._step_velocity = None
+
+    def finalize(self, data: mujoco.MjData) -> None:
+        """Label a finite pulse cut short by a trial exit or cancellation."""
+        if self._step_velocity is not None:
+            raise RuntimeError("finish_step is required before finalizing a force trial")
+        if self.active is not None:
+            self.active.event["pulse_status"] = "trial_end"
+            self.active.event["end_time_s"] = float(data.time)
+            self.active = None
+
+
 class ContactRoughness:
     def __init__(self, config: RunConfig, model: mujoco.MjModel,
                  rotation_world_chute: np.ndarray, floor_id: int, wall_id: int,
@@ -118,6 +389,12 @@ class ContactRoughness:
         self.load_threshold = float(model.body_mass[self.body_id]) * 9.81 * 1e-6
         self.events: list[dict] = []
         self.surfaces: list[_Surface] = []
+        self.weight_force = None
+        if self.mode == "weight_force":
+            self.weight_force = WeightForceRoughness(
+                config, model, rotation_world_chute, floor_id, wall_id, seed)
+            self.events = self.weight_force.events
+            return
         for index, (name, geom_id, local_normal, friction) in enumerate((
             ("wall", wall_id, [0, 1, 0], config.mu_wall),
             ("belt", floor_id, [0, 0, 1], config.mu_belt),
@@ -155,7 +432,21 @@ class ContactRoughness:
             candidates.append((point, jacobian, relative, speed, float(force[0])))
         return candidates
 
+    def prepare_step(self, data: mujoco.MjData, elapsed_s: float) -> None:
+        if self.weight_force is not None:
+            self.weight_force.prepare_step(data, elapsed_s)
+
+    def finish_step(self, data: mujoco.MjData, elapsed_s: float) -> None:
+        if self.weight_force is not None:
+            self.weight_force.finish_step(data, elapsed_s)
+
+    def finalize(self, data: mujoco.MjData) -> None:
+        if self.weight_force is not None:
+            self.weight_force.finalize(data)
+
     def advance(self, data: mujoco.MjData, elapsed_s: float) -> None:
+        if self.weight_force is not None:
+            return
         # mj_step leaves derived quantities at the pre-integration position.
         # Refresh before reading loaded contact points or the mass matrix.
         mujoco.mj_forward(self.model, data)

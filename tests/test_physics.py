@@ -30,17 +30,28 @@ def _simulator(
     length_mm: float = 300,
     drop_height_mm: float = 0,
     timestep_s: float = 0.001,
+    alpha_deg: float = 45,
+    mu_belt: float = 0.4,
+    contact_time_constant_s: float = 0.005,
+    contact_damping_ratio: float = 1.2,
+    contact_torsional_friction_mm: float = 5.0,
+    contact_rolling_friction_mm: float = 0.1,
 ) -> ChuteSimulator:
     source, part = cube
     config = RunConfig(
         mesh_path=source,
         output_dir=source.parent,
         belt_speed_mm_s=belt_speed_mm_s,
-        mu_belt=0.4,
+        mu_belt=mu_belt,
         mu_wall=mu_wall,
         length_mm=length_mm,
         drop_height_mm=drop_height_mm,
         timestep_s=timestep_s,
+        alpha_deg=alpha_deg,
+        contact_time_constant_s=contact_time_constant_s,
+        contact_damping_ratio=contact_damping_ratio,
+        contact_torsional_friction_mm=contact_torsional_friction_mm,
+        contact_rolling_friction_mm=contact_rolling_friction_mm,
     )
     config.validate()
     return ChuteSimulator(config, part)
@@ -199,3 +210,84 @@ def test_half_timestep_preserves_cube_trajectory(
     assert abs(position_normal[0] - position_half[0]) < 0.002
     assert np.linalg.norm(position_normal[1:] - position_half[1:]) < 0.001
     assert (angle_normal.inv() * angle_half).magnitude() < np.deg2rad(1)
+
+
+@pytest.mark.parametrize("timestep_s", [0.001, 0.0005])
+def test_lower_contact_damping_makes_a_real_drop_rebound(
+    cube: tuple[Path, PreparedPart], timestep_s: float,
+) -> None:
+    """Measure the rebound, without treating solref as exact restitution."""
+    rebound_heights: list[float] = []
+    for damping_ratio in (1.2, 0.5):
+        simulator = _simulator(
+            cube, alpha_deg=0, belt_speed_mm_s=0, timestep_s=timestep_s,
+            contact_damping_ratio=damping_ratio,
+        )
+        simulator._spawn(np.array([0.0, 0.0, 0.0, 1.0]))
+        # Flat cube, 100 mm floor clearance, well away from the wall.
+        simulator.data.qpos[:3] = [0.05, 0.05, 0.11]
+        mujoco.mj_forward(simulator.model, simulator.data)
+        has_hit = False
+        max_rebound = 0.0
+        for _ in range(round(0.7 / timestep_s)):
+            mujoco.mj_step(simulator.model, simulator.data)
+            floor, wall = simulator._contact_flags(simulator.data)
+            assert not wall
+            has_hit |= floor
+            if has_hit:
+                # The cube's half-height is 10 mm; symmetry preserves its pose.
+                max_rebound = max(max_rebound, float(simulator.data.qpos[2]) - 0.01)
+        assert has_hit
+        assert np.all(np.isfinite(simulator.data.qpos))
+        rebound_heights.append(max_rebound)
+
+    legacy_rebound, lower_damping_rebound = rebound_heights
+    assert legacy_rebound < 0.001
+    assert lower_damping_rebound > 0.005
+    assert lower_damping_rebound > legacy_rebound + 0.005
+
+
+def test_torsional_friction_opposes_spin_at_a_floor_contact(
+    cube: tuple[Path, PreparedPart],
+) -> None:
+    spin_speeds: list[float] = []
+    for torsional_mm in (0.0, 5.0):
+        simulator = _simulator(
+            cube, alpha_deg=0, belt_speed_mm_s=0, mu_belt=0.01,
+            timestep_s=0.0005, contact_torsional_friction_mm=torsional_mm,
+            contact_rolling_friction_mm=0,
+        )
+        simulator._spawn(np.array([0.0, 0.0, 0.0, 1.0]))
+        simulator.data.qpos[:3] = [0.05, 0.05, 0.0105]
+        mujoco.mj_forward(simulator.model, simulator.data)
+        _advance(simulator, 0.3)
+        assert simulator._contact_flags(simulator.data) == (True, False)
+        simulator.data.qvel[5] = 5.0
+        mujoco.mj_forward(simulator.model, simulator.data)
+        _advance(simulator, 0.05)
+        spin_speeds.append(abs(float(simulator.data.qvel[5])))
+
+    # Low sliding friction isolates the extra rotational resistance.
+    assert spin_speeds[0] > 3.0
+    assert spin_speeds[1] < 0.01
+
+
+@pytest.mark.parametrize(
+    ("torsional_mm", "rolling_mm", "expected_dim"),
+    [(0.0, 0.0, 3), (2.0, 0.0, 4), (2.0, 0.3, 6)],
+)
+def test_rotational_contact_friction_uses_millimetres_and_can_be_disabled(
+    cube: tuple[Path, PreparedPart], torsional_mm: float,
+    rolling_mm: float, expected_dim: int,
+) -> None:
+    simulator = _simulator(
+        cube, contact_torsional_friction_mm=torsional_mm,
+        contact_rolling_friction_mm=rolling_mm,
+        contact_time_constant_s=0.008, contact_damping_ratio=0.7,
+    )
+    assert np.all(simulator.model.pair_dim == expected_dim)
+    np.testing.assert_allclose(simulator.model.pair_solref, [[0.008, 0.7]] * 2)
+    if expected_dim >= 4:
+        np.testing.assert_allclose(simulator.model.pair_friction[:, 2], torsional_mm / 1000)
+    if expected_dim == 6:
+        np.testing.assert_allclose(simulator.model.pair_friction[:, 3:], rolling_mm / 1000)
