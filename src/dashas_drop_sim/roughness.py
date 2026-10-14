@@ -9,6 +9,10 @@ The optional ``weight_force`` model instead supplies an external force along
 chute +X, F = fraction * mass * 9.81, for a finite duration. It is an active,
 uncalibrated disturbance, not passive surface roughness. Exponential waiting
 times and uniformly sampled loaded belt/wall contacts are independent of slip.
+
+``weight_impulse`` delivers the whole mass-scaled impulse once as a velocity
+jump at a loaded contact. Its scheduling is quantized to physics-step starts;
+later separation cannot shorten an impulse already delivered.
 """
 
 from __future__ import annotations
@@ -23,7 +27,8 @@ from .config import RunConfig
 
 MODEL_VERSIONS = {"longitudinal_traction": "longitudinal_contact_traction_v1",
                   "microfacet": "sliding_frictional_microfacet_v2",
-                  "weight_force": "weight_scaled_contact_force_v1"}
+                  "weight_force": "weight_scaled_contact_force_v1",
+                  "weight_impulse": "mass_scaled_contact_impulse_v1"}
 MIN_SLIP_M_S = 0.0001  # Suppress contact solver chatter below 0.1 mm/s.
 CONTACT_DISTANCE_TOLERANCE_M = 1e-7  # 0.1 micrometre; not a flight-phase grace distance.
 
@@ -143,52 +148,21 @@ class _ForceSegment:
     completes_pulse: bool
 
 
-class WeightForceRoughness:
-    """Start a finite force at a loaded contact and continue while touching.
-
-    ``prepare_step`` adds only this model's generalized force, and
-    ``finish_step`` subtracts that same contribution without resetting other
-    applied forces. First/last partial steps use their time-averaged force so
-    the integrated impulse is F * actual_duration, even for nonintegral dt.
-    Instantaneous zero normal load does not end a geometrically touching
-    contact. If the selected surface separates, the point can move to a
-    touching contact on the other chute surface, recording that change. Missing
-    chute contacts or gaps above 0.1 micrometre do end the pulse.
-    Gating is evaluated at step start; loss within a physics step is detected
-    at the next step. The force work is a trapezoidal estimate of
-    generalized power, not a claimed total kinetic-energy change.
-    """
-
+class _LoadedChuteContactSampler:
+    """Physical belt/wall contacts shared by external force and impulse modes."""
     def __init__(self, config: RunConfig, model: mujoco.MjModel,
-                 rotation_world_chute: np.ndarray, floor_id: int, wall_id: int,
-                 seed: int):
+                 rotation_world_chute: np.ndarray, floor_id: int, wall_id: int):
         self.model = model
         self.rotation = np.asarray(rotation_world_chute)
         self.longitudinal = self.rotation[:, 0]
         self.floor_id = floor_id
         self.body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "part")
-        mass = float(model.body_mass[self.body_id])
-        self.force_fraction = config.roughness_force_fraction
-        self.force_n = self.force_fraction * mass * 9.81
-        self.duration_s = config.roughness_force_duration_s
-        self.interval_s = config.roughness_force_interval_s
-        self.load_threshold = mass * 9.81 * 1e-6
+        self.mass_kg = float(model.body_mass[self.body_id])
+        self.load_threshold = self.mass_kg * 9.81 * 1e-6
         self.surfaces = (
             ("wall", wall_id, self.rotation @ np.array([0., 1., 0.]), config.mu_wall),
             ("belt", floor_id, self.rotation @ np.array([0., 0., 1.]), config.mu_belt),
         )
-        streams = np.random.SeedSequence([seed, 0xB1BA2, 0xF0]).spawn(2)
-        self.time_rng = np.random.default_rng(streams[0])
-        self.contact_rng = np.random.default_rng(streams[1])
-        self.events: list[dict] = []
-        self.next_start_s: float | None = None
-        self.active: _WeightPulse | None = None
-        self._added_force = np.zeros(model.nv)
-        self._segments: list[_ForceSegment] = []
-        self._step_velocity: np.ndarray | None = None
-
-    def _wait(self) -> float:
-        return float(self.time_rng.exponential(self.interval_s))
 
     def _contacts(self, data: mujoco.MjData, geom_id: int | None = None,
                   *, loaded_only: bool = True) -> list[_ForceContact]:
@@ -220,6 +194,44 @@ class WeightForceRoughness:
                     name, surface_id, point, jacobian, jacobian @ data.qvel - velocity,
                     normal, float(force[0]), friction, velocity))
         return candidates
+
+
+class WeightForceRoughness(_LoadedChuteContactSampler):
+    """Start a finite force at a loaded contact and continue while touching.
+
+    ``prepare_step`` adds only this model's generalized force, and
+    ``finish_step`` subtracts that same contribution without resetting other
+    applied forces. First/last partial steps use their time-averaged force so
+    the integrated impulse is F * actual_duration, even for nonintegral dt.
+    Instantaneous zero normal load does not end a geometrically touching
+    contact. If the selected surface separates, the point can move to a
+    touching contact on the other chute surface, recording that change. Missing
+    chute contacts or gaps above 0.1 micrometre do end the pulse.
+    Gating is evaluated at step start; loss within a physics step is detected
+    at the next step. The force work is a trapezoidal estimate of
+    generalized power, not a claimed total kinetic-energy change.
+    """
+
+    def __init__(self, config: RunConfig, model: mujoco.MjModel,
+                 rotation_world_chute: np.ndarray, floor_id: int, wall_id: int,
+                 seed: int):
+        super().__init__(config, model, rotation_world_chute, floor_id, wall_id)
+        self.force_fraction = config.roughness_force_fraction
+        self.force_n = self.force_fraction * self.mass_kg * 9.81
+        self.duration_s = config.roughness_force_duration_s
+        self.interval_s = config.roughness_force_interval_s
+        streams = np.random.SeedSequence([seed, 0xB1BA2, 0xF0]).spawn(2)
+        self.time_rng = np.random.default_rng(streams[0])
+        self.contact_rng = np.random.default_rng(streams[1])
+        self.events: list[dict] = []
+        self.next_start_s: float | None = None
+        self.active: _WeightPulse | None = None
+        self._added_force = np.zeros(model.nv)
+        self._segments: list[_ForceSegment] = []
+        self._step_velocity: np.ndarray | None = None
+
+    def _wait(self) -> float:
+        return float(self.time_rng.exponential(self.interval_s))
 
     def _start_pulse(self, data: mujoco.MjData, contact: _ForceContact, start_s: float) -> None:
         response = np.zeros((3, self.model.nv))
@@ -376,6 +388,99 @@ class WeightForceRoughness:
             self.active = None
 
 
+class WeightImpulseRoughness(_LoadedChuteContactSampler):
+    """Apply J = mass * configured speed increment exactly once at contact.
+
+    The free-body COM speed increment specifies impulse strength, not the
+    contact-constrained velocity after the next MuJoCo step. The Jacobian
+    supplies the contact lever arm and inertia-dependent angular response.
+    Events occur at the first physics-step boundary on/after their requested
+    time, at most once per step. Each event or contactless skip starts a fresh
+    exponential wait from that actual boundary, so overdue events do not pile
+    up on landing. Force arrays are untouched.
+    """
+
+    def __init__(self, config: RunConfig, model: mujoco.MjModel,
+                 rotation_world_chute: np.ndarray, floor_id: int, wall_id: int,
+                 seed: int):
+        super().__init__(config, model, rotation_world_chute, floor_id, wall_id)
+        self.delta_v_mm_s = config.roughness_impulse_delta_v_mm_s
+        self.impulse_ns = self.mass_kg * self.delta_v_mm_s / 1000
+        self.interval_s = config.roughness_force_interval_s
+        streams = np.random.SeedSequence([seed, 0xB1BA2, 0xF1]).spawn(2)
+        self.time_rng = np.random.default_rng(streams[0])
+        self.contact_rng = np.random.default_rng(streams[1])
+        self.next_start_s: float | None = None
+        self.events: list[dict] = []
+
+    def _wait(self) -> float:
+        return float(self.time_rng.exponential(self.interval_s))
+
+    def prepare_step(self, data: mujoco.MjData, elapsed_s: float) -> None:
+        if elapsed_s <= 0 or not np.isfinite(elapsed_s):
+            raise ValueError("The impulse step duration must be finite and positive")
+        if self.impulse_ns <= 0:
+            return
+        now = float(data.time)
+        if self.next_start_s is None:
+            self.next_start_s = now + self._wait()
+        if self.next_start_s > now:
+            return
+        requested_time_s = self.next_start_s
+        self.next_start_s = now + self._wait()
+        # mj_step leaves contacts and mass factorization at the pre-integration
+        # position. Refresh the actual boundary before sampling a loaded point.
+        mujoco.mj_forward(self.model, data)
+        contacts = self._contacts(data)
+        if not contacts:
+            return
+        contact = contacts[int(self.contact_rng.integers(len(contacts)))]
+        response = np.zeros((3, self.model.nv))
+        mujoco.mj_solveM(self.model, data, response, np.ascontiguousarray(contact.jacobian))
+        mobility = contact.jacobian @ response.T
+        inverse_mass = float(self.longitudinal @ mobility @ self.longitudinal)
+        impulse = self.impulse_ns * self.longitudinal
+        velocity_change = response.T @ impulse
+        body_energy_change = float(impulse @ (contact.jacobian @ data.qvel)
+                                   + 0.5 * impulse @ mobility @ impulse)
+        relative_energy_change = float(impulse @ contact.relative_velocity
+                                       + 0.5 * impulse @ mobility @ impulse)
+        angular_impulse = np.cross(contact.point - data.xipos[self.body_id], impulse)
+        data.qvel[:] += velocity_change
+        self.events.append({
+            "time_s": now, "requested_time_s": requested_time_s,
+            "scheduling_delay_s": now - requested_time_s,
+            "surface": contact.surface, "model": "weight_impulse",
+            "contact_pos_chute_mm": (self.rotation.T @ contact.point * 1000).tolist(),
+            "relative_sliding_speed_mm_s": float(np.linalg.norm(
+                contact.relative_velocity - np.dot(contact.relative_velocity, contact.normal)
+                * contact.normal) * 1000),
+            "relative_longitudinal_speed_mm_s": float(contact.relative_velocity @ self.longitudinal * 1000),
+            "impulse_delta_v_mm_s": self.delta_v_mm_s,
+            "impulse_ns": self.impulse_ns, "configured_impulse_ns": self.impulse_ns,
+            "impulse_chute_ns": (self.rotation.T @ impulse).tolist(),
+            "angular_impulse_chute_nms": (self.rotation.T @ angular_impulse).tolist(),
+            "contact_normal_force_n": contact.load_n,
+            "friction_coefficient": contact.friction,
+            "effective_mass_kg": 1 / inverse_mass if inverse_mass > 0 else 0.0,
+            "body_energy_change_j": body_energy_change,
+            "relative_energy_change_j": relative_energy_change,
+            "energy_semantics": "instantaneous_velocity_jump",
+            "normal_impulse_ns": 0.0, "friction_impulse_ns": 0.0,
+            "friction_impulse_limit_ns": 0.0, "sampled_height_mm": 0.0,
+            "configured_duration_s": 0.0, "actual_duration_s": 0.0,
+            "effective_pulse_duration_s": 0.0, "end_time_s": now,
+            "pulse_status": "completed", "force_n": None,
+            "belt_speed_mm_s": float(self.model.geom_surfacevel[self.floor_id, 0] * 1000),
+        })
+
+    def finish_step(self, data: mujoco.MjData, elapsed_s: float) -> None:
+        pass
+
+    def finalize(self, data: mujoco.MjData) -> None:
+        pass
+
+
 class ContactRoughness:
     def __init__(self, config: RunConfig, model: mujoco.MjModel,
                  rotation_world_chute: np.ndarray, floor_id: int, wall_id: int,
@@ -390,10 +495,16 @@ class ContactRoughness:
         self.events: list[dict] = []
         self.surfaces: list[_Surface] = []
         self.weight_force = None
+        self.weight_impulse = None
         if self.mode == "weight_force":
             self.weight_force = WeightForceRoughness(
                 config, model, rotation_world_chute, floor_id, wall_id, seed)
             self.events = self.weight_force.events
+            return
+        if self.mode == "weight_impulse":
+            self.weight_impulse = WeightImpulseRoughness(
+                config, model, rotation_world_chute, floor_id, wall_id, seed)
+            self.events = self.weight_impulse.events
             return
         for index, (name, geom_id, local_normal, friction) in enumerate((
             ("wall", wall_id, [0, 1, 0], config.mu_wall),
@@ -435,6 +546,8 @@ class ContactRoughness:
     def prepare_step(self, data: mujoco.MjData, elapsed_s: float) -> None:
         if self.weight_force is not None:
             self.weight_force.prepare_step(data, elapsed_s)
+        elif self.weight_impulse is not None:
+            self.weight_impulse.prepare_step(data, elapsed_s)
 
     def finish_step(self, data: mujoco.MjData, elapsed_s: float) -> None:
         if self.weight_force is not None:
@@ -445,7 +558,7 @@ class ContactRoughness:
             self.weight_force.finalize(data)
 
     def advance(self, data: mujoco.MjData, elapsed_s: float) -> None:
-        if self.weight_force is not None:
+        if self.weight_force is not None or self.weight_impulse is not None:
             return
         # mj_step leaves derived quantities at the pre-integration position.
         # Refresh before reading loaded contact points or the mass matrix.

@@ -322,8 +322,8 @@ def build_manifest(config: RunConfig, part: PreparedPart, resolver: PoseResolver
         "surface_roughness": {
             "enabled": config.roughness_enabled,
             "model": MODEL_VERSIONS[config.roughness_model],
-            "minimum_sliding_speed_mm_s": None if config.roughness_model == "weight_force" else MIN_SLIP_M_S * 1000,
-            "sampling_interval_s": (config.timestep_s if config.roughness_model == "weight_force" else
+            "minimum_sliding_speed_mm_s": None if config.roughness_model in {"weight_force", "weight_impulse"} else MIN_SLIP_M_S * 1000,
+            "sampling_interval_s": (config.timestep_s if config.roughness_model in {"weight_force", "weight_impulse"} else
                                     max(1, round(0.005 / config.timestep_s)) * config.timestep_s),
             "restitution": 0.0 if config.roughness_model == "microfacet" else None,
             "additional_friction": ("Longitudinal traction impulse from an equivalent friction increment mu * height/ramp; duration ramp/abs(longitudinal slip); capped at slip cancellation"
@@ -334,7 +334,9 @@ def build_manifest(config: RunConfig, part: PreparedPart, resolver: PoseResolver
                                  if config.roughness_model == "longitudinal_traction"
                                  else "normal-load times sliding-speed weighted active MuJoCo contact points"
                                  if config.roughness_model == "microfacet" else
-                                 "uniform random loaded contact at start; nearest geometric contact on selected surface during pulse; if absent, track nearest geometric contact on another chute surface"),
+                                 "uniform random loaded contact at start; nearest geometric contact on selected surface during pulse; if absent, track nearest geometric contact on another chute surface"
+                                 if config.roughness_model == "weight_force" else
+                                 "uniform random geometrically touching loaded contact on belt or wall at impulse time"),
             "weight_force": ({
                 "force_fraction": config.roughness_force_fraction,
                 "force_n": config.roughness_force_fraction * part.mass_kg * 9.81,
@@ -344,8 +346,18 @@ def build_manifest(config: RunConfig, part: PreparedPart, resolver: PoseResolver
                 "timing": "exponential waiting times after pulse end; no overlapping pulses; contactless starts skipped",
                 "energy_policy": "Externally driven force can add energy; no passive-friction interpretation",
             } if config.roughness_model == "weight_force" else None),
+            "instantaneous_impulse": ({
+                "delta_v_free_mm_s": config.roughness_impulse_delta_v_mm_s,
+                "impulse_ns": part.mass_kg * config.roughness_impulse_delta_v_mm_s / 1000,
+                "mean_interval_s": config.roughness_force_interval_s,
+                "direction_chute": [1, 0, 0],
+                "timing": "exponential waits; at most one complete impulse per integration step; contactless events skipped; times rounded up to a step boundary",
+                "energy_policy": "External impulse changes generalized velocity through point Jacobian and mass matrix; normal contact dynamics follow",
+            } if config.roughness_model == "weight_impulse" else None),
             "interpretation": ("Uncalibrated finite contact force pulses proportional to weight; time-based even at zero slip. Continue through zero solver load only with geometric contact within 0.1 micrometre tolerance; stop on loss of all chute contacts. Not resolved surface topography."
                                if config.roughness_model == "weight_force" else
+                               "Uncalibrated complete point impulse J = mass * free velocity change. No finite force duration or shortening at later contact loss. Geometry and inertia determine rotation; no pose forced."
+                               if config.roughness_model == "weight_impulse" else
                                "Uncalibrated stochastic contact impulses per relative sliding distance; not a fixed surface map or resolved scratch geometry. Traction strength is an equivalent friction assumption, not inferred from scratch depth alone."),
         },
         "belt_speed_variation": {
@@ -389,7 +401,10 @@ def run_experiment(
                             cache_dir=config.output_dir / ".pose_cache")
     simulator = ChuteSimulator(config, part)
     _write_json(run_dir / "manifest.json", build_manifest(config, part, resolver))
-    emit({"event": "started", "run_dir": str(run_dir), "visible": visible})
+    emit({"event": "started", "run_dir": str(run_dir), "visible": visible,
+          "mass_kg": part.mass_kg, "mesh_path": str(config.mesh_path), "density_g_cm3": config.density_g_cm3,
+          "impulse_ns": (part.mass_kg * config.roughness_impulse_delta_v_mm_s / 1000
+                         if config.roughness_enabled and config.roughness_model == "weight_impulse" else None)})
 
     child_seeds = np.random.SeedSequence(config.seed).spawn(config.trials)
     jobs = [(index, int(child.generate_state(1, dtype=np.uint32)[0]))
@@ -522,6 +537,7 @@ def run_experiment(
         "configured_impulse_ns", "energy_semantics",
         "current_surface", "contact_surface_changes", "last_contact_pos_chute_mm",
         "last_contact_normal_force_n", "zero_load_duration_s", "geometric_contact_tolerance_mm",
+        "impulse_delta_v_mm_s", "requested_time_s", "scheduling_delay_s",
     ], roughness_events)
     _write_csv(run_dir / "stability.csv", [
         "pose_id", "energy_lift_mm", "energy_j", "retained_count", "direction_count",

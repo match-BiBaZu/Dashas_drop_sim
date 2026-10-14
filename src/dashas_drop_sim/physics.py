@@ -316,14 +316,14 @@ class ChuteSimulator:
             return
         with viewer.lock():
             scene.ngeom = 0
-            if roughness is None or not roughness.events or self.config.roughness_model != "weight_force":
+            if roughness is None or not roughness.events or self.config.roughness_model not in {"weight_force", "weight_impulse"}:
                 return
             event = roughness.events[-1]
             age = self.data.time - event["time_s"]
             if age > max(0.25, event.get("actual_duration_s", 0) + 0.1):
                 return
             point = self.R_world_chute @ (np.asarray(event.get("last_contact_pos_chute_mm", event["contact_pos_chute_mm"])) / 1000)
-            active = event.get("pulse_status") == "active"
+            active = event.get("pulse_status") == "active" or (event["model"] == "weight_impulse" and age < 0.04)
             color = np.array([1, 0.15 if active else 0.8, 0.05, 1], dtype=np.float32)
             if scene.maxgeom < 3:
                 return
@@ -336,7 +336,8 @@ class ChuteSimulator:
                                np.zeros(3), arrow_origin, np.eye(3).ravel(), color)
             mujoco.mjv_connector(scene.geoms[1], mujoco.mjtGeom.mjGEOM_ARROW, 0.0015,
                                  arrow_origin, arrow_origin + self.R_world_chute[:, 0] * 0.035)
-            scene.geoms[1].label = f"{event['force_fraction'] * 100:g}% mg, max {event['configured_duration_s'] * 1000:g} ms (+X)"
+            scene.geoms[1].label = (f"J={event['impulse_ns']:.4g} Ns (+X)" if event["model"] == "weight_impulse" else
+                                    f"{event['force_fraction'] * 100:g}% mg, max {event['configured_duration_s'] * 1000:g} ms (+X)")
             mujoco.mjv_initGeom(scene.geoms[2], mujoco.mjtGeom.mjGEOM_LINE,
                                np.zeros(3), point, np.eye(3).ravel(), color)
             mujoco.mjv_connector(scene.geoms[2], mujoco.mjtGeom.mjGEOM_LINE, 2, point, arrow_origin)
@@ -373,7 +374,8 @@ class ChuteSimulator:
                                      self.floor_id, self.wall_id, seed)
                      if cfg.roughness_enabled and (
                          (cfg.roughness_model == "weight_force" and cfg.roughness_force_fraction > 0)
-                         or (cfg.roughness_model != "weight_force" and (
+                         or (cfg.roughness_model == "weight_impulse" and cfg.roughness_impulse_delta_v_mm_s > 0)
+                         or (cfg.roughness_model not in {"weight_force", "weight_impulse"} and (
                              cfg.roughness_wall_height_mm > 0 or cfg.roughness_belt_height_mm > 0))) else None)
         roughness_stride = max(1, round(0.005 / cfg.timestep_s))
         belt_profile = BeltSpeedProfile(cfg, seed) if cfg.belt_speed_variation_mm_s > 0 else None

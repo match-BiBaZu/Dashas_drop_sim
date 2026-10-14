@@ -104,7 +104,10 @@ def test_gui_roughness_settings_reach_simulation_config(tmp_path: Path) -> None:
     app = QApplication.instance() or QApplication([])
     window = DropSimulationWindow(settings_path=tmp_path / "gui_defaults.json")
     try:
-        assert not window.roughness_check.isChecked()
+        assert window.roughness_check.isChecked()
+        assert window.roughness_model_combo.currentData() == "weight_impulse"
+        assert window.impulse_delta_v_spin.value() == 49.05
+        assert window.force_interval_spin.value() == 0.2
         assert window.roughness_spins["roughness_wall_height_mm"].value() == 0.1
         assert window.roughness_spins["roughness_wall_spacing_mm"].value() == 10
         assert window.roughness_spins["roughness_belt_height_mm"].value() == 0

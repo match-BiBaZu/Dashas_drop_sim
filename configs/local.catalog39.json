@@ -23,7 +23,7 @@
   "mu_wall": 0.2,
   "timestep_s": 0.001,
   "roughness_enabled": true,
-  "roughness_model": "weight_force",
+  "roughness_model": "weight_impulse",
   "roughness_wall_height_mm": 0.1,
   "roughness_wall_ramp_mm": 3,
   "roughness_wall_spacing_mm": 10,
@@ -36,5 +36,6 @@
   "contact_time_constant_s": 0.005,
   "contact_damping_ratio": 0.5,
   "contact_torsional_friction_mm": 5.0,
-  "contact_rolling_friction_mm": 0.1
+  "contact_rolling_friction_mm": 0.1,
+  "roughness_impulse_delta_v_mm_s": 49.05
 }

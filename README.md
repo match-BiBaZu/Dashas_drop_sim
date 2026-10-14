@@ -195,11 +195,14 @@ konkreter Kratzer und kein fester Oberflächenplan modelliert. Vorgaben für die
 PTFE-Wand sind maximal 0,1 mm wirksame Kantenhöhe, 3 mm wirksame Kantenlänge und
 10 mm mittlerer Abstand. Das sind unkalibrierte Startschätzungen. Für das Band
 ist die Kantenhöhe zunächst 0 mm; beide Flächen sind unabhängig einstellbar.
-Die Funktion ist standardmäßig ausgeschaltet und gilt bei Aktivierung für
+In einer neuen GUI sind vollständige Einzelimpulse mit 49,05 mm/s und
+0,2 s mittlerem Abstand als Startwerte aktiviert. Explizit gespeicherte
+Einstellungen haben Vorrang. CLI-Konfigurationen ohne Störungsfelder behalten
+die bisherigen deaktivierten Vorgaben. Die Funktion gilt bei Aktivierung für
 Abwürfe sowie die anschließenden Störversuche. Die GUI enthält die Rauheitsmodi
 **Kontaktimpulse entlang der Rutsche** (neue Hauptoption) und
 **Flache Unebenheitsstöße mit Reibung** (Vergleichsoption) sowie die unten
-beschriebenen Gewichtskraft-Pulse. Gespeicherte ältere
+beschriebenen Gewichtskraft-Pulse und vollständigen Einzelimpulse. Gespeicherte ältere
 Konfigurationen ohne `roughness_model` verwenden jetzt die Hauptoption; der
 Manifest-Eintrag dokumentiert die Modellversion. Für Vergleiche mit früheren
 Ergebnissen ist diese Änderung zu berücksichtigen.
@@ -258,6 +261,55 @@ Für einen ununterbrochenen Puls gilt `Impuls = F × Dauer`. Bei 10 % und 50 ms
 entspricht dies ohne Kontaktwiderstände `Δv = 49,05 mm/s`. Die protokollierte
 Kraftarbeit ist eine Trapezschätzung und keine isolierte Messung der Änderung
 der gesamten kinetischen Energie (`energy_semantics`).
+
+#### Vollständige Einzelimpulse
+
+Die GUI-Option **Einzelimpulse mit vollständigem Kraftstoß** setzt einen
+einmaligen Kraftstoß **J** am zufälligen belasteten Kontaktpunkt mit Band oder
+Wand an. Die Stärke wird als **Freier Geschwindigkeitsstoß (J/m)** in mm/s
+eingegeben: `J = Bauteilmasse × roughness_impulse_delta_v_mm_s / 1000` in N·s.
+Die GUI zeigt für STL-Dateien den resultierenden Kraftstoß und die Modellmasse.
+Bei STEP-Dateien erscheint der Wert nach der Modellvorbereitung; der Lauf
+protokolliert stets die tatsächliche Masse und Stärke.
+
+Der Startwert **49,05 mm/s** entspricht `0,1 × g × 50 ms`. Ein kräftiger
+Diagnosewert **490,5 mm/s** entspricht `g × 50 ms`. Beide Werte beschreiben
+den vollständigen Kraftstoß pro Masse, keine Anwendungsdauer. Die bisherige
+Pulsdauer und der Gewichtskraftanteil haben in diesem Modus keine Wirkung.
+Dies ist auch die GUI-Vorgabe ohne bereits gespeicherte Einstellungen.
+
+```json
+{
+  "roughness_enabled": true,
+  "roughness_model": "weight_impulse",
+  "roughness_impulse_delta_v_mm_s": 49.05,
+  "roughness_force_interval_s": 0.2
+}
+```
+
+Ein fälliges Ereignis wird nur bei einem belasteten, geometrisch berührenden
+Kontakt ausgelöst, im Flug übersprungen. Die Wartezeit ist exponentiell
+verteilt. Der Stoß wird einmal vor einem Physikschritt über Kontakt-Jacobian
+und Massenmatrix auf die Geschwindigkeiten übertragen; der Hebelarm erzeugt
+Winkelgeschwindigkeit. Danach lösen MuJoCos reguläre Kontakte die Bewegung
+weiter auf. Eine spätere Ablösung kürzt den bereits übertragenen Stoß nicht.
+Die Bauteilorientierung wird nicht direkt gesetzt.
+
+Ereigniszeiten liegen auf Integrationsgrenzen. `requested_time_s`, `time_s`
+und `scheduling_delay_s` dokumentieren die Rundung um höchstens einen
+Zeitschritt. Es wird höchstens ein Stoß je Schritt ausgeführt, ohne
+nachgeholte Ereignisbündel. `actual_duration_s = 0` kennzeichnet den
+Geschwindigkeitssprung; `impulse_ns` enthält dennoch den vollständigen
+Kraftstoß. Die Energieänderung beim Stoß ist aus der Punktgeschwindigkeit
+und der effektiven Masse berechnet (`instantaneous_velocity_jump`). Das
+ist eine externe, unkalibrierte Anregung mit möglicher Energiezufuhr.
+
+Im echten Regressionstest steht die originale Dk1i-Geometrie auf ihrer
+dreieckigen Stirnfläche und gleitet ohne Störung bis zum Rutschenende mit
+weniger als 1° Orientierungsänderung. Ein einmaliger Stoß von **490,5 mm/s**
+nach 1 s kippt die Längsachse um etwa **90°**; die andere Lage bleibt bis
+zum Ausgang erhalten. `tests/test_impulse_tipping.py` prüft diesen Ablauf.
+Das ist ein Funktionsnachweis, keine Kalibrierung realer Unebenheiten.
 
 #### Kontaktfederung und Drehreibung
 

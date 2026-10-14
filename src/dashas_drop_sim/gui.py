@@ -53,11 +53,13 @@ from .batch import Workpiece, batch_configs, find_roadmap
 from .catalog import SOURCE_COMMIT, catalog_models
 from .pose_image import render_pose_image
 from .roadmap_reindex import reindex_roadmaps
-from .settings import default_settings_path, load_defaults, save_defaults
+from .settings import GUI_INITIAL_PARAMETERS, default_settings_path, load_defaults, save_defaults
 
 
 def _default(name: str, fallback: Any) -> Any:
     """Read dataclass defaults without requiring a valid input model."""
+    if name in GUI_INITIAL_PARAMETERS:
+        return GUI_INITIAL_PARAMETERS[name]
     try:
         field = next(item for item in fields(RunConfig) if item.name == name)
     except (TypeError, StopIteration):
@@ -250,6 +252,7 @@ class DropSimulationWindow(QMainWindow):
         self.roughness_model_combo.addItem("Kontaktimpulse entlang der Rutsche", "longitudinal_traction")
         self.roughness_model_combo.addItem("Flache Unebenheitsstöße mit Reibung", "microfacet")
         self.roughness_model_combo.addItem("Kraftpulse als Anteil der Gewichtskraft", "weight_force")
+        self.roughness_model_combo.addItem("Einzelimpulse mit vollständigem Kraftstoß", "weight_impulse")
         self.roughness_model_combo.setCurrentIndex(max(0, self.roughness_model_combo.findData(
             _default("roughness_model", "longitudinal_traction"))))
         self.roughness_model_combo.setEnabled(self.roughness_check.isChecked())
@@ -281,18 +284,39 @@ class DropSimulationWindow(QMainWindow):
         self.force_duration_spin.setSuffix(" s")
         self.force_interval_spin = _spin(_default("roughness_force_interval_s", 0.2), 0.001, 10, 3, 0.05)
         self.force_interval_spin.setSuffix(" s")
+        self.impulse_delta_v_spin = _spin(_default("roughness_impulse_delta_v_mm_s", 49.05), 0, 1000, 2, 5)
+        self.impulse_delta_v_spin.setSuffix(" mm/s")
+        self.impulse_delta_v_spin.setToolTip("Kraftstoß pro Bauteilmasse: J/m. Freie Geschwindigkeitsänderung vor der anschließenden Kontaktauflösung.")
+        self.impulse_strength_label = QLabel()
+        self.impulse_strength_label.setWordWrap(True)
+        self._impulse_volume_cache = {}
+        self._prepared_mass = None
         self.force_panel = QWidget()
         force_form = QFormLayout(self.force_panel)
-        force_form.addRow("Kraftanteil an Gewichtskraft", self.force_fraction_spin)
-        force_form.addRow("Pulsdauer", self.force_duration_spin)
-        force_form.addRow("Mittlere Pause zwischen Pulsen", self.force_interval_spin)
+        self.force_fraction_label = QLabel("Kraftanteil an Gewichtskraft")
+        self.force_duration_label = QLabel("Pulsdauer")
+        self.force_interval_label = QLabel("Mittlere Pause zwischen Pulsen")
+        self.impulse_delta_v_label = QLabel("Freier Geschwindigkeitsstoß (J/m)")
+        force_form.addRow(self.force_fraction_label, self.force_fraction_spin)
+        force_form.addRow(self.force_duration_label, self.force_duration_spin)
+        force_form.addRow(self.impulse_delta_v_label, self.impulse_delta_v_spin)
+        force_form.addRow(self.force_interval_label, self.force_interval_spin)
+        force_form.addRow(self.impulse_strength_label)
+        self.impulse_delta_v_spin.valueChanged.connect(self._update_impulse_strength)
+        self.density_spin.valueChanged.connect(self._update_impulse_strength)
+        self._impulse_preview_timer = QTimer(self)
+        self._impulse_preview_timer.setSingleShot(True)
+        self._impulse_preview_timer.timeout.connect(self._update_impulse_strength)
+        self.mesh_edit.textChanged.connect(lambda: self._impulse_preview_timer.start(200))
         roughness_layout.addWidget(self.force_panel)
         self.roughness_model_combo.currentIndexChanged.connect(self._update_roughness_controls)
         self.roughness_check.toggled.connect(self._update_roughness_controls)
         roughness_note = QLabel(
             "Kraftpulse: F = Anteil × Masse × 9,81 m/s², entlang der Rutsche (+X) an einem zufälligen "
-            "belasteten Kontakt mit Band oder Wand. Die Pausen sind zufällig; auch ohne Schlupf "
-            "wirksam. Kontaktverlust beendet den Puls. Das Modell führt Energie zu und muss "
+            "belasteten Kontakt mit Band oder Wand. Kontaktverlust beendet diesen Kraftpuls. "
+            "Einzelimpulse übertragen dagegen J = Masse × Geschwindigkeitsstoß einmal vollständig "
+            "am Kontaktpunkt; die eingegebene Stärke ist J/m, keine Pulsdauer. "
+            "Die Pausen sind zufällig; beide Modelle wirken auch ohne Schlupf, führen Energie zu und müssen "
             "an realen Versuchen abgeglichen werden. In den beiden Rauheitsmodellen gelten "
             "stattdessen Kantenhöhe, Kantenlänge und Abstand entlang des Gleitwegs."
         )
@@ -684,16 +708,56 @@ class DropSimulationWindow(QMainWindow):
             "roughness_force_fraction": self.force_fraction_spin,
             "roughness_force_duration_s": self.force_duration_spin,
             "roughness_force_interval_s": self.force_interval_spin,
+            "roughness_impulse_delta_v_mm_s": self.impulse_delta_v_spin,
             **self.roughness_spins,
         }
 
     def _update_roughness_controls(self, *_args) -> None:
         enabled = self.roughness_check.isChecked()
-        force_mode = self.roughness_model_combo.currentData() == "weight_force"
+        mode = self.roughness_model_combo.currentData()
+        force_mode = mode in {"weight_force", "weight_impulse"}
+        impulse_mode = mode == "weight_impulse"
         for spin in self.roughness_spins.values():
             spin.setEnabled(enabled and not force_mode)
         self.force_panel.setVisible(force_mode)
         self.force_panel.setEnabled(enabled)
+        for widget in (self.force_fraction_label, self.force_fraction_spin,
+                       self.force_duration_label, self.force_duration_spin):
+            widget.setVisible(not impulse_mode)
+        for widget in (self.impulse_delta_v_label, self.impulse_delta_v_spin, self.impulse_strength_label):
+            widget.setVisible(impulse_mode)
+        self.force_interval_label.setText("Mittlerer Abstand zwischen Einzelimpulsen" if impulse_mode
+                                          else "Mittlere Pause zwischen Pulsen")
+        self._update_impulse_strength()
+
+    def _update_impulse_strength(self, *_args) -> None:
+        speed = self.impulse_delta_v_spin.value() / 1000
+        path = Path(self.mesh_edit.text()).expanduser()
+        density = self.density_spin.value()
+        mass = None
+        prepared = self._prepared_mass
+        if prepared is not None and prepared[:2] == (str(path.resolve()), density):
+            mass = prepared[2]
+        elif path.suffix.lower() == ".stl" and path.is_file():
+            try:
+                import trimesh
+                stat = path.stat()
+                key = (str(path.resolve()), stat.st_mtime_ns, stat.st_size)
+                if key not in self._impulse_volume_cache:
+                    mesh = trimesh.load_mesh(path, force="mesh", process=True)
+                    self._impulse_volume_cache[key] = float(mesh.volume) if mesh.is_volume else None
+                volume = self._impulse_volume_cache[key]
+                if volume is not None:
+                    mass = volume * density * 1e-6
+            except (OSError, ValueError, ImportError):
+                pass
+        if mass is not None:
+            self.impulse_strength_label.setText(
+                f"Vollständiger Kraftstoß J = {mass * speed:.6g} N·s; Modellmasse {mass * 1000:.4g} g. "
+                "Die Kontakte bestimmen die anschließende Bewegung.")
+        else:
+            self.impulse_strength_label.setText(
+                f"J = Bauteilmasse × {speed:g} N·s/kg. Die Stärke in N·s wird nach der Modellvorbereitung angezeigt.")
 
     def _parameter_values(self) -> dict[str, Any]:
         level_text = self.levels_edit.text().strip()
@@ -1091,6 +1155,12 @@ class DropSimulationWindow(QMainWindow):
             if event.get("run_dir"):
                 self._run_dir = Path(str(event["run_dir"]))
                 self._log_line(f"Ergebnisordner: {self._run_dir}")
+            if event.get("mass_kg") is not None and event.get("mesh_path"):
+                self._prepared_mass = (str(Path(event["mesh_path"]).resolve()),
+                                       event.get("density_g_cm3"), event["mass_kg"])
+                self._update_impulse_strength()
+            if event.get("impulse_ns") is not None:
+                self._log_line(f"Einzelimpuls: J = {event['impulse_ns']:.6g} N·s, vollständig je Kontakt-Ereignis.")
             return True
         if kind in {"progress", "trial", "trial_complete"}:
             trial = event.get("completed", event.get("trial"))

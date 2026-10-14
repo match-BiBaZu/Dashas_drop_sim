@@ -96,7 +96,7 @@ def test_same_seed_repeats_release_and_end_state(cube: Path) -> None:
 
 
 @pytest.mark.parametrize("roughness_enabled,roughness_model", [(False, "longitudinal_traction"),
-                        (True, "longitudinal_traction"), (True, "weight_force")])
+                        (True, "longitudinal_traction"), (True, "weight_force"), (True, "weight_impulse")])
 def test_parallel_drops_match_serial_seeded_results(cube: Path, roughness_enabled: bool, roughness_model: str) -> None:
     serial_config = _short_config(cube, output_dir=cube.parent / "serial")
     serial_config.trials = 2
@@ -146,7 +146,7 @@ def test_parallel_drops_match_serial_seeded_results(cube: Path, roughness_enable
         assert sum(serial.summary["roughness_surface_counts"].values()) == serial.summary["roughness_impulse_count"]
 
 
-@pytest.mark.parametrize("force_pulses", [False, True])
+@pytest.mark.parametrize("force_pulses", [False, True, "weight_impulse"])
 def test_visible_series_reuses_viewer_and_matches_headless(cube: Path, monkeypatch, force_pulses) -> None:
     class FakeViewer:
         def __init__(self, model):
@@ -186,7 +186,7 @@ def test_visible_series_reuses_viewer_and_matches_headless(cube: Path, monkeypat
     config.workers = 2
     if force_pulses:
         config.roughness_enabled = True
-        config.roughness_model = "weight_force"
+        config.roughness_model = "weight_impulse" if force_pulses == "weight_impulse" else "weight_force"
     watched = run_experiment(config, visible=True)
     config.output_dir = cube.parent / "unwatched"
     config.workers = 1
@@ -197,7 +197,31 @@ def test_visible_series_reuses_viewer_and_matches_headless(cube: Path, monkeypat
     watched_rows = [json.loads(line) for line in (watched.run_dir / "trials.jsonl").read_text().splitlines()]
     headless_rows = [json.loads(line) for line in (headless.run_dir / "trials.jsonl").read_text().splitlines()]
     assert watched_rows == headless_rows
-    assert viewers[0].marker_seen == force_pulses
+    assert viewers[0].marker_seen == bool(force_pulses)
+
+
+def test_complete_impulse_run_persists_mass_scaled_strength_and_zero_duration(cube):
+    config = _short_config(cube)
+    config.roughness_enabled = True
+    config.roughness_model = "weight_impulse"
+    config.roughness_impulse_delta_v_mm_s = 49.05
+    config.compute_stability = False
+    result = run_experiment(config)
+    manifest = json.loads((result.run_dir / "manifest.json").read_text())
+    section = manifest["surface_roughness"]["instantaneous_impulse"]
+    expected = manifest["mass_kg"] * 0.04905
+    assert section["delta_v_free_mm_s"] == 49.05
+    assert section["impulse_ns"] == pytest.approx(expected)
+    assert manifest["surface_roughness"]["weight_force"] is None
+    events = _csv_rows(result.run_dir / "roughness_events.csv")
+    assert events
+    for event in events:
+        assert event["model"] == "weight_impulse"
+        assert float(event["impulse_ns"]) == pytest.approx(expected)
+        assert float(event["configured_impulse_ns"]) == pytest.approx(expected)
+        assert float(event["actual_duration_s"]) == 0
+        assert event["energy_semantics"] == "instantaneous_velocity_jump"
+        assert float(event["scheduling_delay_s"]) <= config.timestep_s + 1e-9
 
 
 def test_weight_force_run_persists_force_duration_impulse_and_contact_response(cube):

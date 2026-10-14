@@ -19,6 +19,8 @@ from dashas_drop_sim.gui import DropSimulationWindow
     {"roughness_force_fraction": 1.1},
     {"roughness_force_duration_s": 0},
     {"roughness_force_interval_s": float("nan")},
+    {"roughness_impulse_delta_v_mm_s": -1},
+    {"roughness_impulse_delta_v_mm_s": 1001},
 ])
 def test_invalid_contact_and_force_settings_are_rejected(changes):
     config = RunConfig(Path("unused.stl"), **changes)
@@ -26,9 +28,10 @@ def test_invalid_contact_and_force_settings_are_rejected(changes):
         config.validate_parameters()
 
 
-def test_weight_force_does_not_use_surface_height_to_validate_pulses():
+@pytest.mark.parametrize("mode", ["weight_force", "weight_impulse"])
+def test_weight_force_does_not_use_surface_height_to_validate_pulses(mode):
     config = RunConfig(Path("unused.stl"), roughness_enabled=True,
-                       roughness_model="weight_force", roughness_wall_height_mm=2)
+                       roughness_model=mode, roughness_wall_height_mm=2)
     config.validate_parameters()
 
 
@@ -59,6 +62,36 @@ def test_weight_controls_roundtrip_percent_and_disable_unused_geometry(tmp_path)
         assert not reopened.roughness_spins["roughness_wall_height_mm"].isEnabled()
         reopened.roughness_check.setChecked(False)
         assert not reopened.force_fraction_spin.isEnabled()
+    finally:
+        reopened.close()
+        del app
+
+
+def test_single_impulse_controls_preserve_strength_and_display_ns(tmp_path):
+    from dashas_drop_sim.catalog import catalog_models
+    app = QApplication.instance() or QApplication([])
+    settings = tmp_path / "impulse-settings.json"
+    window = DropSimulationWindow(settings_path=settings)
+    try:
+        window.roughness_check.setChecked(True)
+        window.roughness_model_combo.setCurrentIndex(window.roughness_model_combo.findData("weight_impulse"))
+        window.mesh_edit.setText(str(catalog_models()["Dk1i"]))
+        window.impulse_delta_v_spin.setValue(490.5)
+        window._update_impulse_strength()
+        assert window._parameter_values()["roughness_impulse_delta_v_mm_s"] == 490.5
+        assert window.force_fraction_spin.isHidden() and window.force_duration_spin.isHidden()
+        assert not window.impulse_delta_v_spin.isHidden()
+        assert "0.00204574 N·s" in window.impulse_strength_label.text()
+        window.density_spin.setValue(2.3)
+        assert "0.00409149 N·s" in window.impulse_strength_label.text()
+        window._save_defaults()
+    finally:
+        window.close()
+    reopened = DropSimulationWindow(settings_path=settings)
+    try:
+        assert reopened.roughness_model_combo.currentData() == "weight_impulse"
+        assert reopened.impulse_delta_v_spin.value() == 490.5
+        assert reopened.force_duration_spin.isHidden()
     finally:
         reopened.close()
         del app

@@ -44,6 +44,7 @@ class RunConfig:
     roughness_force_fraction: float = 0.1
     roughness_force_duration_s: float = 0.05
     roughness_force_interval_s: float = 0.2
+    roughness_impulse_delta_v_mm_s: float = 49.05
     roughness_wall_height_mm: float = 0.1
     roughness_wall_ramp_mm: float = 3.0
     roughness_wall_spacing_mm: float = 10.0
@@ -81,8 +82,8 @@ class RunConfig:
             raise ValueError("workers must be an integer between 1 and 32")
         if not isinstance(self.roughness_enabled, bool):
             raise ValueError("roughness_enabled must be true or false")
-        if self.roughness_model not in {"longitudinal_traction", "microfacet", "weight_force"}:
-            raise ValueError("roughness_model must be longitudinal_traction, microfacet or weight_force")
+        if self.roughness_model not in {"longitudinal_traction", "microfacet", "weight_force", "weight_impulse"}:
+            raise ValueError("roughness_model must be longitudinal_traction, microfacet, weight_force or weight_impulse")
         bounds = (
             ("belt_speed_mm_s", self.belt_speed_mm_s, 0, 200),
             ("belt_speed_variation_mm_s", self.belt_speed_variation_mm_s, 0, 20),
@@ -103,6 +104,7 @@ class RunConfig:
             ("roughness_force_fraction", self.roughness_force_fraction, 0, 1),
             ("roughness_force_duration_s", self.roughness_force_duration_s, 0.001, 1),
             ("roughness_force_interval_s", self.roughness_force_interval_s, 0.001, 10),
+            ("roughness_impulse_delta_v_mm_s", self.roughness_impulse_delta_v_mm_s, 0, 1000),
             *[(f"roughness_{surface}_{parameter}_mm", getattr(self, f"roughness_{surface}_{parameter}_mm"), low, high)
               for surface in ("wall", "belt")
               for parameter, low, high in (("height", 0, 2), ("ramp", 0.1, 100), ("spacing", 1, 10000))],
@@ -122,7 +124,7 @@ class RunConfig:
         for surface in ("wall", "belt"):
             height = getattr(self, f"roughness_{surface}_height_mm")
             ramp = getattr(self, f"roughness_{surface}_ramp_mm")
-            if self.roughness_enabled and self.roughness_model != "weight_force" and height / ramp > 0.25:
+            if self.roughness_enabled and self.roughness_model not in {"weight_force", "weight_impulse"} and height / ramp > 0.25:
                 raise ValueError(f"roughness_{surface}: height/ramp must be at most 0.25 for small imperfections")
         if not all(math.isfinite(x) for x in (self.alpha_deg, self.beta_deg)):
             raise ValueError("Chute angles must be finite")
