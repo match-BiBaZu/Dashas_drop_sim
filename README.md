@@ -195,8 +195,8 @@ konkreter Kratzer und kein fester Oberflächenplan modelliert. Vorgaben für die
 PTFE-Wand sind maximal 0,1 mm wirksame Kantenhöhe, 3 mm wirksame Kantenlänge und
 10 mm mittlerer Abstand. Das sind unkalibrierte Startschätzungen. Für das Band
 ist die Kantenhöhe zunächst 0 mm; beide Flächen sind unabhängig einstellbar.
-In einer neuen GUI sind vollständige Einzelimpulse mit 49,05 mm/s und
-0,2 s mittlerem Abstand als Startwerte aktiviert. Explizit gespeicherte
+In einer neuen GUI sind vollständige Einzelimpulse mit 49,05 mm/s,
+0,2 s mittlerem Abstand und **1 s Anfangsanregung** als Startwerte aktiviert. Explizit gespeicherte
 Einstellungen haben Vorrang. CLI-Konfigurationen ohne Störungsfelder behalten
 die bisherigen deaktivierten Vorgaben. Die Funktion gilt bei Aktivierung für
 Abwürfe sowie die anschließenden Störversuche. Die GUI enthält die Rauheitsmodi
@@ -278,12 +278,31 @@ den vollständigen Kraftstoß pro Masse, keine Anwendungsdauer. Die bisherige
 Pulsdauer und der Gewichtskraftanteil haben in diesem Modus keine Wirkung.
 Dies ist auch die GUI-Vorgabe ohne bereits gespeicherte Einstellungen.
 
+**Dauer der Anfangsanregung** begrenzt alle zufälligen Kontaktstörungen auf
+den Anfang des Versuchs. Mit `roughness_active_duration_s: 1.0` endet die
+Anregung nach 1 s; anschließend läuft das Bauteil ohne weitere Kontaktstörungen
+bis zum Ausgang. Das erleichtert die Einpendelprüfung der letzten 0,5 s.
+Die Prüfkriterien werden dabei nicht gelockert. Das Zeitfenster beginnt mit
+der Fallbeobachtung, einschließlich Freiflug beim Abwurf; bei Störversuchen
+beginnt es nach dem Wiedereinsetzen. Aktive Kraftpulse werden am Fensterende
+mit `pulse_status: window_end` beendet. Eine spätere erneute Berührung öffnet
+das Fenster nicht wieder. Bandgeschwindigkeitsschwankungen bleiben aktiv.
+
+`0` beziehungsweise **Ganzer Lauf** schaltet die Begrenzung aus. Ältere
+CLI-Konfigurationen ohne das Feld behalten diese bisherige Betriebsart.
+Es werden nur vollständige Physikschritte innerhalb des Fensters angeregt;
+die tatsächliche Grenze kann deshalb um weniger als einen Zeitschritt vor
+dem eingestellten Ende liegen. Die Angabe in `manifest.json` dokumentiert
+das Fenster. Für kürzere Strecken oder schnellere Transporte muss genügend
+Auslauf nach der gewählten Anfangszeit vorgesehen werden.
+
 ```json
 {
   "roughness_enabled": true,
   "roughness_model": "weight_impulse",
   "roughness_impulse_delta_v_mm_s": 49.05,
-  "roughness_force_interval_s": 0.2
+  "roughness_force_interval_s": 0.2,
+  "roughness_active_duration_s": 1.0
 }
 ```
 
@@ -529,6 +548,7 @@ Jede Serie erhält einen eigenen Ordner `run_<UTC-Zeitstempel>_<Seed>` unter
 | `trials.jsonl` | Während des Laufs fortlaufend geschrieben; am Ende mit fertiger Pose-Zuordnung |
 | `trials.csv` | Jeder Abwurf mit Seed, Endorientierung, Status und fertiger Zuordnung |
 | `frequencies.csv` | Anzahl, Anteil und 95-%-Konfidenzintervall je Pose oder Status |
+| `stop_observations.csv` | Zusätzliche Ruheprüfung nach Bandstopp mit Fahrstatus, Ruhepose und Nachlaufweg |
 | `disturbances.csv` | Einzelne Störversuche nach Pose, Richtung und Stärke |
 | `roughness_events.csv` / `.jsonl` | Jeder Unebenheitsimpuls mit Phase, Versuch, Kontaktpunkt, Relativgeschwindigkeit, Impuls in N·s und Energieänderung |
 | `stability.csv` | Pose-Erhalt je Störstärke als Störkurve |
@@ -553,6 +573,35 @@ als Rangmaß. Es gibt keinen vorgegebenen Grenzwert für „stabil“.
 
 Beim normalen Simulationslauf wird die Roadmap nur gelesen. Ihre Felder für
 Luftimpuls-Übergänge werden durch Fallhäufigkeiten nicht verändert.
+
+### Ruheprüfung nach Bandstopp
+
+Die GUI-Option **Am Streckenende anhalten und Ruhe prüfen** ist zunächst
+eingeschaltet. Nach der regulären Messung am virtuellen Streckenende bremst
+das Band mit einer glatten Kosinusrampe auf null (Startwert **0,2 s**). Danach
+läuft die Simulation noch **2 s** ohne Bandgeschwindigkeitsschwankungen oder
+Kontaktstörungen. Die Bremsdauer und Beobachtungsdauer sind einstellbar.
+Das Bauteil wird dabei weder fixiert noch seine Geschwindigkeit zurückgesetzt.
+Die idealisierten Kontaktflächen setzen sich hinter der Messlinie fort;
+ein physischer Abwurf von einer Bandkante wird nicht simuliert.
+
+Der Reiter **Nach Bandstopp** zeigt je Abwurf den Status während der Fahrt und
+nach dem Anhalten sowie die dann gemessene Pose. Als ruhig zählt nur eine
+Lage mit stabilem Kontakt und stabiler Orientierung über das letzte
+0,5-s-Fenster; zusätzlich wird die Bewegung in allen drei Raumrichtungen
+geprüft (Positionsspanne höchstens 1 mm und gefilterte Geschwindigkeit
+höchstens 1 mm/s). Weiterrollende oder gleitende Teile bleiben `unsettled`.
+Die volle Beobachtungsdauer läuft auch nach einem ersten Einpendeln weiter.
+
+Die Fahrmessung und ihre Häufigkeiten bleiben unverändert. Die Ruheprüfung
+steht separat in `trials.jsonl` als `stop_observation`, in
+`stop_observations.csv` und in `summary.json` unter `belt_stop_observation`.
+Der Katalogexport enthält die Zusatzprüfung in seiner Versuchstabelle und
+eine getrennte Zusammenfassung; sie ersetzt nicht die Fahrposen im Katalog.
+Die Störkurven prüfen weiterhin das laufende Band.
+Für JSON-Konfigurationen heißen die Optionen `belt_stop_enabled`,
+`belt_stop_ramp_s` und `belt_stop_observation_s`; ohne Angabe bleibt die
+Zusatzprüfung dort aus, damit ältere Konfigurationen dieselben Versuche ausführen.
 
 ### Pose-Nummern nach Häufigkeit ordnen
 

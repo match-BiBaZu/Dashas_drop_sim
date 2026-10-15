@@ -15,5 +15,6 @@
   "roughness_impulse_delta_v_mm_s": 49.05,
   "roughness_force_interval_s": 0.2,
   "compute_stability": false,
-  "catalog_push": false
+  "catalog_push": false,
+  "roughness_active_duration_s": 1.0
 }

@@ -467,6 +467,47 @@ def _kinetic_energy(model, data):
     return 0.5 * float(data.qvel @ momentum)
 
 
+def test_impulse_window_stops_events_permanently_and_uses_observation_clock(impulse_cube, monkeypatch):
+    config, part = impulse_cube
+    config.roughness_active_duration_s = 0.004
+    simulator, roughness = _loaded_weight_cube(config, part)
+    # Stability observations begin after reseating, so the clock is not
+    # necessarily MuJoCo time zero.
+    simulator.data.time = 2.0
+    roughness.weight_impulse.next_start_s = 2.0
+    monkeypatch.setattr(roughness.weight_impulse, "_wait", lambda: 0.001)
+    for _ in range(4):
+        _force_step(simulator, roughness)
+    assert roughness.events
+    before = len(roughness.events)
+    for _ in range(20):
+        _force_step(simulator, roughness)
+    assert roughness.window_closed
+    assert len(roughness.events) == before
+    assert all(2 <= event["time_s"] < 2.004 for event in roughness.events)
+    # Recontact cannot reopen the window.
+    simulator.data.qpos[:3] = simulator.R_world_chute @ np.array([0.05, 0.00999, 0.00999])
+    simulator.data.qvel[:] = 0
+    _force_step(simulator, roughness)
+    assert len(roughness.events) == before
+
+
+def test_window_cuts_a_force_pulse_without_overstating_its_impulse(weight_cube):
+    config, part = weight_cube
+    config.roughness_active_duration_s = 0.0035
+    simulator, roughness = _loaded_weight_cube(config, part)
+    roughness.weight_force.next_start_s = 0
+    for _ in range(8):
+        _force_step(simulator, roughness)
+    assert len(roughness.events) == 1
+    event = roughness.events[0]
+    assert event["pulse_status"] == "window_end"
+    assert event["end_time_s"] == pytest.approx(0.003)
+    assert event["actual_duration_s"] == pytest.approx(0.003)
+    assert event["impulse_ns"] == pytest.approx(event["force_n"] * 0.003)
+    assert not np.any(simulator.data.qfrc_applied)
+
+
 def test_weight_impulse_delivers_full_momentum_once_with_lever_arm_and_exact_energy(
         impulse_cube, monkeypatch):
     config, part = impulse_cube

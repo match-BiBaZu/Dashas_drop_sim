@@ -65,6 +65,7 @@ class TrialOutcome:
     actual_lateral_mm: float | None = None
     initial_pos_chute_mm: tuple[float, ...] = ()
     belt_speed_control_points: tuple[dict, ...] = ()
+    stop_observation: dict | None = None
 
     def to_dict(self) -> dict:
         return {**asdict(self), "roughness_impulse_count": len(self.roughness_events)}
@@ -449,7 +450,7 @@ class ChuteSimulator:
         floor, wall = self._contact_flags(data)
         if trace_stable and self._window_is_settled(history) and data.time > last_trace_time + 0.01:
             settled_trace.append(tuple(float(x) for x in self._local_quat(data)))
-        return TrialOutcome(
+        outcome = TrialOutcome(
             trial=trial,
             seed=seed,
             status=status,
@@ -469,6 +470,85 @@ class ChuteSimulator:
             initial_pos_chute_mm=initial_pos,
             belt_speed_control_points=belt_profile.control_points() if belt_profile is not None else (),
         )
+        # Preserve the transport measurement verbatim; the extra stationary
+        # observation has its own pose/status and never changes kick rankings.
+        if cfg.belt_stop_enabled and status in {"settled", "unsettled"} and not trace_stable:
+            outcome.stop_observation = self._observe_belt_stop(cancel=cancel, viewer=viewer)
+        return outcome
+
+    def _observe_belt_stop(self, *, cancel=None, viewer=None) -> dict:
+        """Brake at the virtual exit, then assess actual rest with no excitation.
+
+        Chute contact planes continue beyond the observation line, so the part
+        may coast freely. Only the belt speed changes: no body velocity is reset.
+        """
+        cfg, data = self.config, self.data
+        start_s = float(data.time)
+        start_pos = self._local_position(data).copy()
+        start_quat = self._local_quat(data).copy()
+        speed = float(self.model.geom_surfacevel[self.floor_id, 0])
+        ramp_steps = math.ceil(cfg.belt_stop_ramp_s / cfg.timestep_s - 1e-10)
+        wait_steps = math.ceil(cfg.belt_stop_observation_s / cfg.timestep_s - 1e-10)
+        sample_stride = max(1, round(0.01 / cfg.timestep_s))
+        viewer_stride = max(1, round(0.02 / cfg.timestep_s))
+        history: deque[tuple] = deque()
+        wall_start = time.perf_counter() if viewer is not None else 0.0
+        status = "unsettled"
+        stopped_at_s = None
+        first_rest_s = None
+        for step in range(ramp_steps + wait_steps):
+            if cancel is not None and cancel():
+                status = "cancelled"
+                break
+            # Smooth half-cosine braking; speed jitter is disabled in this phase.
+            phase = min(1.0, (step + 1) / ramp_steps)
+            self.model.geom_surfacevel[self.floor_id, 0] = speed * (1 + math.cos(math.pi * phase)) / 2
+            mujoco.mj_step(self.model, data)
+            if step + 1 == ramp_steps:
+                stopped_at_s = float(data.time)
+            if viewer is not None and (step + 1) % viewer_stride == 0 and viewer.is_running():
+                viewer.cam.lookat[:] = self.R_world_chute @ np.array([self._local_position(data)[0], 0.075, 0.075])
+                self._update_roughness_markers(viewer, None)
+                viewer.sync()
+                remaining = data.time - start_s - (time.perf_counter() - wall_start)
+                if remaining > 0:
+                    time.sleep(remaining)
+            if not np.all(np.isfinite(data.qpos)) or not np.all(np.isfinite(data.qvel)):
+                status = "invalid"
+                break
+            pos = self._local_position(data)
+            if np.min(pos[1:3]) < -0.05:
+                status = "lost"
+                break
+            if step + 1 <= ramp_steps or (step + 1 - ramp_steps) % sample_stride:
+                continue
+            floor, wall = self._contact_flags(data)
+            # Full XYZ instead of transverse YZ makes the existing filtered
+            # velocity/range check reject continued longitudinal sliding too.
+            history.append((data.time, self._local_quat(data).copy(), pos.copy(), floor, wall))
+            while history and data.time - history[0][0] > 0.51:
+                history.popleft()
+            if first_rest_s is None and self._window_is_settled(history):
+                first_rest_s = float(data.time)
+        else:
+            status = "settled" if self._window_is_settled(history) else "unsettled"
+        floor, wall = self._contact_flags(data)
+        final_quat = self._local_quat(data)
+        return {
+            "status": status,
+            "start_time_s": start_s,
+            "initial_belt_speed_mm_s": speed * 1000,
+            "stopped_at_s": stopped_at_s,
+            "end_time_s": float(data.time),
+            "first_settled_s": first_rest_s,
+            "final_belt_speed_mm_s": float(self.model.geom_surfacevel[self.floor_id, 0] * 1000),
+            "final_quat_xyzw": tuple(float(x) for x in final_quat),
+            "final_pos_chute_mm": tuple(float(x * 1000) for x in self._local_position(data)),
+            "final_qpos": tuple(float(x) for x in data.qpos[:7]),
+            "final_floor_contact": floor, "final_wall_contact": wall,
+            "coast_distance_mm": float((self._local_position(data)[0] - start_pos[0]) * 1000),
+            "orientation_change_deg": math.degrees(2 * math.acos(min(1.0, abs(float(start_quat @ final_quat))))),
+        }
 
     def drop(
         self,

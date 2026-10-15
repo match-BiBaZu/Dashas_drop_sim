@@ -321,6 +321,12 @@ def build_manifest(config: RunConfig, part: PreparedPart, resolver: PoseResolver
         },
         "surface_roughness": {
             "enabled": config.roughness_enabled,
+            "active_window": {
+                "duration_s": config.roughness_active_duration_s or None,
+                "clock": "elapsed observation time; includes release for drops, starts after reseating for stability trials",
+                "zero_means": "entire observation",
+                "cutoff": "only full physics steps within the window; no restart on recontact; active force pulses end with window_end",
+            },
             "model": MODEL_VERSIONS[config.roughness_model],
             "minimum_sliding_speed_mm_s": None if config.roughness_model in {"weight_force", "weight_impulse"} else MIN_SLIP_M_S * 1000,
             "sampling_interval_s": (config.timestep_s if config.roughness_model in {"weight_force", "weight_impulse"} else
@@ -369,6 +375,15 @@ def build_manifest(config: RunConfig, part: PreparedPart, resolver: PoseResolver
             "control_point_clock": "elapsed time from start of observation (after reseating for stability trials)",
             "interpretation": "Uniform random speed targets joined by smooth cosine transitions; forces arise from MuJoCo contact friction, not direct body kicks.",
         },
+        "belt_stop_observation": {
+            "enabled": config.belt_stop_enabled,
+            "trigger": "after transport measurement at the virtual exit; drop trials only",
+            "ramp_s": config.belt_stop_ramp_s,
+            "observation_s_after_stop": config.belt_stop_observation_s,
+            "braking": "half-cosine belt surface speed to zero; no body velocity reset; speed variation and roughness disabled",
+            "rest_criterion": "existing 0.5 s contact/orientation window with full XYZ position range <= 1 mm and filtered speed <= 1 mm/s",
+            "interpretation": "Separate stationary observation; transport pose frequencies and stability rankings are unchanged. Contact planes extend beyond the virtual exit.",
+        },
         "software": {
             "dashas-drop-sim": __version__, "mujoco": mujoco.__version__,
             "coacd": _version("coacd"), "trimesh": _version("trimesh"),
@@ -414,6 +429,15 @@ def run_experiment(
         def record_drop(outcome: TrialOutcome) -> None:
             match = resolver.resolve(outcome.final_quat_xyzw) if outcome.status in SETTLED_STATUSES else None
             row = outcome.to_dict()
+            observation = row.get("stop_observation")
+            if observation is not None:
+                stop_match = (resolver.resolve(observation["final_quat_xyzw"])
+                              if observation["status"] == "settled" else None)
+                observation.update({
+                    "match_status": stop_match.status if stop_match else "not_evaluated",
+                    "roadmap_pose_id": stop_match.pose_id if stop_match else None,
+                    "match_distance_deg": stop_match.distance_deg if stop_match else None,
+                })
             row.update({
                 "match_status": match.status if match else "not_evaluated",
                 "roadmap_pose_id": match.pose_id if match else None,
@@ -433,6 +457,7 @@ def run_experiment(
                       "final_wall_contact",
                       "roughness_impulse_count",
                       "actual_drop_height_mm", "actual_lateral_mm", "initial_pos_chute_mm",
+                      "stop_observation",
                   )}})
         if visible and not cancel():
             import mujoco.viewer
@@ -480,7 +505,16 @@ def run_experiment(
         "roughness_impulse_count",
         "actual_drop_height_mm", "actual_lateral_mm", "initial_pos_chute_mm",
         "belt_speed_control_points",
+        "stop_observation",
     ], rows)
+    stop_rows = [{"trial": row["trial"], "seed": row["seed"], "transport_status": row["status"],
+                  **row["stop_observation"]} for row in rows if row.get("stop_observation") is not None]
+    _write_csv(run_dir / "stop_observations.csv", [
+        "trial", "seed", "transport_status", "status", "match_status", "roadmap_pose_id", "match_distance_deg",
+        "start_time_s", "stopped_at_s", "end_time_s", "first_settled_s",
+        "initial_belt_speed_mm_s", "final_belt_speed_mm_s", "coast_distance_mm", "orientation_change_deg",
+        "final_quat_xyzw", "final_pos_chute_mm", "final_qpos", "final_floor_contact", "final_wall_contact",
+    ], stop_rows)
     frequencies = _frequency_rows(rows, len(rows), resolver.known_pose_ids) if rows else []
     example_by_key = {row["pose_key"]: row for row in rows
                       if row["status"] in SETTLED_STATUSES and row["pose_key"] != "ambiguous"}
@@ -551,6 +585,13 @@ def run_experiment(
         "pose_frequencies": frequencies,
         "status_counts": dict(Counter(row["status"] for row in rows)),
         "settled_trials": sum(row["status"] in SETTLED_STATUSES for row in rows),
+        "belt_stop_observation": {
+            "enabled": config.belt_stop_enabled,
+            "observed_trials": len(stop_rows),
+            "status_counts": dict(Counter(row["status"] for row in stop_rows)),
+            "unsettled_transport_then_settled": sum(row["transport_status"] == "unsettled" and row["status"] == "settled" for row in stop_rows),
+            "settled_transport_then_unsettled": sum(row["transport_status"] == "settled" and row["status"] == "unsettled" for row in stop_rows),
+        },
         "stability_curves": curves,
         "stability_ranking": ranking,
         "disturbance_trials": len(disturbances),

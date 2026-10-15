@@ -378,12 +378,12 @@ class WeightForceRoughness(_LoadedChuteContactSampler):
         self._segments.clear()
         self._step_velocity = None
 
-    def finalize(self, data: mujoco.MjData) -> None:
+    def finalize(self, data: mujoco.MjData, *, reason: str = "trial_end") -> None:
         """Label a finite pulse cut short by a trial exit or cancellation."""
         if self._step_velocity is not None:
             raise RuntimeError("finish_step is required before finalizing a force trial")
         if self.active is not None:
-            self.active.event["pulse_status"] = "trial_end"
+            self.active.event["pulse_status"] = reason
             self.active.event["end_time_s"] = float(data.time)
             self.active = None
 
@@ -487,6 +487,9 @@ class ContactRoughness:
                  seed: int):
         self.model = model
         self.mode = config.roughness_model
+        self.active_duration_s = config.roughness_active_duration_s
+        self.observation_start_s: float | None = None
+        self.window_closed = False
         self.rotation = rotation_world_chute
         self.longitudinal = self.rotation[:, 0]
         self.body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "part")
@@ -544,6 +547,18 @@ class ContactRoughness:
         return candidates
 
     def prepare_step(self, data: mujoco.MjData, elapsed_s: float) -> None:
+        if self.observation_start_s is None:
+            self.observation_start_s = float(data.time)
+        if self.window_closed:
+            return
+        # Only full integration steps inside the window may receive a force.
+        # This also bounds finite pulses, without lying about their integral
+        # by applying a partial-step force over a full MuJoCo timestep.
+        if (self.active_duration_s > 0 and
+                data.time + elapsed_s - self.observation_start_s > self.active_duration_s + 1e-12):
+            self.finalize(data, reason="window_end")
+            self.window_closed = True
+            return
         if self.weight_force is not None:
             self.weight_force.prepare_step(data, elapsed_s)
         elif self.weight_impulse is not None:
@@ -553,11 +568,16 @@ class ContactRoughness:
         if self.weight_force is not None:
             self.weight_force.finish_step(data, elapsed_s)
 
-    def finalize(self, data: mujoco.MjData) -> None:
+    def finalize(self, data: mujoco.MjData, *, reason: str = "trial_end") -> None:
         if self.weight_force is not None:
-            self.weight_force.finalize(data)
+            self.weight_force.finalize(data, reason=reason)
 
     def advance(self, data: mujoco.MjData, elapsed_s: float) -> None:
+        if self.window_closed:
+            return
+        if (self.active_duration_s > 0 and self.observation_start_s is not None and
+                data.time - self.observation_start_s >= self.active_duration_s - 1e-12):
+            return
         if self.weight_force is not None or self.weight_impulse is not None:
             return
         # mj_step leaves derived quantities at the pre-integration position.

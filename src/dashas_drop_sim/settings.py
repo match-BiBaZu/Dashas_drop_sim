@@ -11,10 +11,12 @@ from .config import RunConfig
 INPUT_KEYS = ("mesh_path", "roadmap_path", "output_dir", "catalog_repo", "catalog_cad_dir")
 PARAMETER_KEYS = frozenset(field.name for field in fields(RunConfig)) - frozenset(INPUT_KEYS)
 GUI_INITIAL_PARAMETERS = {
+    "belt_stop_enabled": True,
     "roughness_enabled": True,
     "roughness_model": "weight_impulse",
     "roughness_impulse_delta_v_mm_s": 49.05,
     "roughness_force_interval_s": 0.2,
+    "roughness_active_duration_s": 1.0,
 }
 
 

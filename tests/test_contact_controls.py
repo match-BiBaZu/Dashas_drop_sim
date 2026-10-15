@@ -21,6 +21,7 @@ from dashas_drop_sim.gui import DropSimulationWindow
     {"roughness_force_interval_s": float("nan")},
     {"roughness_impulse_delta_v_mm_s": -1},
     {"roughness_impulse_delta_v_mm_s": 1001},
+    {"roughness_active_duration_s": -1},
 ])
 def test_invalid_contact_and_force_settings_are_rejected(changes):
     config = RunConfig(Path("unused.stl"), **changes)
@@ -77,6 +78,7 @@ def test_single_impulse_controls_preserve_strength_and_display_ns(tmp_path):
         window.roughness_model_combo.setCurrentIndex(window.roughness_model_combo.findData("weight_impulse"))
         window.mesh_edit.setText(str(catalog_models()["Dk1i"]))
         window.impulse_delta_v_spin.setValue(490.5)
+        window.roughness_duration_spin.setValue(1.5)
         window._update_impulse_strength()
         assert window._parameter_values()["roughness_impulse_delta_v_mm_s"] == 490.5
         assert window.force_fraction_spin.isHidden() and window.force_duration_spin.isHidden()
@@ -91,6 +93,7 @@ def test_single_impulse_controls_preserve_strength_and_display_ns(tmp_path):
     try:
         assert reopened.roughness_model_combo.currentData() == "weight_impulse"
         assert reopened.impulse_delta_v_spin.value() == 490.5
+        assert reopened.roughness_duration_spin.value() == 1.5
         assert reopened.force_duration_spin.isHidden()
     finally:
         reopened.close()

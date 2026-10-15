@@ -100,6 +100,47 @@ def test_visible_series_event_updates_last_trial(tmp_path: Path) -> None:
         del app
 
 
+def test_belt_stop_gui_settings_and_results(tmp_path, monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    window = DropSimulationWindow(settings_path=tmp_path / 'gui_defaults.json')
+    try:
+        assert window.belt_stop_check.isChecked()
+        window.belt_stop_ramp_spin.setValue(0.3)
+        window.belt_stop_wait_spin.setValue(3)
+        values = window._parameter_values()
+        assert values['belt_stop_enabled'] is True
+        assert values['belt_stop_ramp_s'] == 0.3
+        assert values['belt_stop_observation_s'] == 3
+        window._save_defaults()
+        reloaded = DropSimulationWindow(settings_path=tmp_path / 'gui_defaults.json')
+        try:
+            assert reloaded.belt_stop_check.isChecked()
+            assert reloaded.belt_stop_ramp_spin.value() == 0.3
+            assert reloaded.belt_stop_wait_spin.value() == 3
+        finally:
+            reloaded.close()
+        window.belt_stop_check.setChecked(False)
+        assert not window.belt_stop_wait_spin.isEnabled()
+        record = {'trial': 0, 'transport_status': 'unsettled', 'status': 'settled',
+                  'orientation_change_deg': 30, 'coast_distance_mm': 12,
+                  'final_quat_xyzw': '[0,0,0,1]', 'final_pos_chute_mm': '[100,10,10]'}
+        (tmp_path / 'stop_observations.csv').write_text(
+            'trial,transport_status,status,orientation_change_deg,coast_distance_mm\n0,unsettled,settled,30,12\n')
+        window._run_started_at = 0
+        window._load_stop_results(tmp_path)
+        assert '1 / 1' in window.stop_summary_label.text()
+        captured = []
+        monkeypatch.setattr(window, '_show_pose', captured.append)
+        window._set_stop_rows([record])
+        window.stop_table.cellWidget(0, 6).click()
+        assert captured[0]['representative_quat_xyzw'] == record['final_quat_xyzw']
+        assert window.stop_table.item(0, 1).text() == 'unsettled'
+        assert window.stop_table.item(0, 2).text() == 'settled'
+    finally:
+        window.close()
+        del app
+
+
 def test_gui_roughness_settings_reach_simulation_config(tmp_path: Path) -> None:
     app = QApplication.instance() or QApplication([])
     window = DropSimulationWindow(settings_path=tmp_path / "gui_defaults.json")
@@ -108,6 +149,7 @@ def test_gui_roughness_settings_reach_simulation_config(tmp_path: Path) -> None:
         assert window.roughness_model_combo.currentData() == "weight_impulse"
         assert window.impulse_delta_v_spin.value() == 49.05
         assert window.force_interval_spin.value() == 0.2
+        assert window.roughness_duration_spin.value() == 1.0
         assert window.roughness_spins["roughness_wall_height_mm"].value() == 0.1
         assert window.roughness_spins["roughness_wall_spacing_mm"].value() == 10
         assert window.roughness_spins["roughness_belt_height_mm"].value() == 0

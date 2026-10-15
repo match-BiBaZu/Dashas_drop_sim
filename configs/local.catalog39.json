@@ -37,5 +37,6 @@
   "contact_damping_ratio": 0.5,
   "contact_torsional_friction_mm": 5.0,
   "contact_rolling_friction_mm": 0.1,
-  "roughness_impulse_delta_v_mm_s": 49.05
+  "roughness_impulse_delta_v_mm_s": 49.05,
+  "roughness_active_duration_s": 1.0
 }

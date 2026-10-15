@@ -49,6 +49,24 @@ def _csv_rows(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(stream))
 
 
+def test_stop_observation_export_is_separate_from_transport(cube: Path):
+    config = _short_config(cube)
+    config.belt_stop_enabled = True
+    config.compute_stability = False
+    events = []
+    result = run_experiment(config, emit=events.append)
+    row = json.loads((result.run_dir / 'trials.jsonl').read_text())
+    stop = row['stop_observation']
+    exported = _csv_rows(result.run_dir / 'stop_observations.csv')
+    assert len(exported) == 1
+    assert exported[0]['transport_status'] == row['status']
+    assert exported[0]['status'] == stop['status']
+    assert stop['end_time_s'] > row['sim_time_s']
+    assert result.summary['belt_stop_observation']['observed_trials'] == 1
+    emitted = next(e for e in events if e['event'] == 'progress')['record']['stop_observation']
+    assert json.loads(json.dumps(emitted)) == stop
+
+
 def test_short_real_cube_run_persists_unknown_pose_and_outputs(cube: Path) -> None:
     result = run_experiment(_short_config(cube))
     run_dir = result.run_dir

@@ -23,6 +23,9 @@ class RunConfig:
     belt_speed_mm_s: float = 100.0
     belt_speed_variation_mm_s: float = 0.0
     belt_variation_interval_s: float = 0.2
+    belt_stop_enabled: bool = False
+    belt_stop_ramp_s: float = 0.2
+    belt_stop_observation_s: float = 2.0
     drop_height_mm: float = 100.0
     drop_height_spread_mm: float = 0.0
     lateral_mm: float = 0.0
@@ -45,6 +48,7 @@ class RunConfig:
     roughness_force_duration_s: float = 0.05
     roughness_force_interval_s: float = 0.2
     roughness_impulse_delta_v_mm_s: float = 49.05
+    roughness_active_duration_s: float = 0.0  # Zero preserves full-run excitation in older configs.
     roughness_wall_height_mm: float = 0.1
     roughness_wall_ramp_mm: float = 3.0
     roughness_wall_spacing_mm: float = 10.0
@@ -82,12 +86,16 @@ class RunConfig:
             raise ValueError("workers must be an integer between 1 and 32")
         if not isinstance(self.roughness_enabled, bool):
             raise ValueError("roughness_enabled must be true or false")
+        if not isinstance(self.belt_stop_enabled, bool):
+            raise ValueError("belt_stop_enabled must be true or false")
         if self.roughness_model not in {"longitudinal_traction", "microfacet", "weight_force", "weight_impulse"}:
             raise ValueError("roughness_model must be longitudinal_traction, microfacet, weight_force or weight_impulse")
         bounds = (
             ("belt_speed_mm_s", self.belt_speed_mm_s, 0, 200),
             ("belt_speed_variation_mm_s", self.belt_speed_variation_mm_s, 0, 20),
             ("belt_variation_interval_s", self.belt_variation_interval_s, 0.02, 10),
+            ("belt_stop_ramp_s", self.belt_stop_ramp_s, 0.02, 10),
+            ("belt_stop_observation_s", self.belt_stop_observation_s, 0.6, 60),
             ("drop_height_mm", self.drop_height_mm, 0, 200),
             ("drop_height_spread_mm", self.drop_height_spread_mm, 0, 100),
             ("lateral_mm", self.lateral_mm, -100, 100),
@@ -105,6 +113,7 @@ class RunConfig:
             ("roughness_force_duration_s", self.roughness_force_duration_s, 0.001, 1),
             ("roughness_force_interval_s", self.roughness_force_interval_s, 0.001, 10),
             ("roughness_impulse_delta_v_mm_s", self.roughness_impulse_delta_v_mm_s, 0, 1000),
+            ("roughness_active_duration_s", self.roughness_active_duration_s, 0, 3600),
             *[(f"roughness_{surface}_{parameter}_mm", getattr(self, f"roughness_{surface}_{parameter}_mm"), low, high)
               for surface in ("wall", "belt")
               for parameter, low, high in (("height", 0, 2), ("ramp", 0.1, 100), ("spacing", 1, 10000))],
