@@ -10,9 +10,19 @@ from .config import RunConfig
 
 INPUT_KEYS = ("mesh_path", "output_dir", "catalog_repo", "catalog_cad_dir", "observed_catalog_path")
 PARAMETER_KEYS = frozenset(field.name for field in fields(RunConfig)) - frozenset(INPUT_KEYS)
+GUI_INITIAL_PARAMETERS = {
+    "belt_stop_enabled": True,
+    "roughness_enabled": True,
+    "roughness_model": "weight_impulse",
+    "roughness_impulse_delta_v_mm_s": 49.05,
+    "roughness_force_interval_s": 0.2,
+    "roughness_active_duration_s": 1.0,
+}
 
 
 def default_settings_path() -> Path:
+    if path := os.environ.get("DASHAS_DROP_SIM_SETTINGS_PATH"):
+        return Path(path).expanduser().resolve()
     if os.name == "nt":
         root = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
         return root / "BiBaZu" / "DashasDropSim" / "gui_defaults.json"

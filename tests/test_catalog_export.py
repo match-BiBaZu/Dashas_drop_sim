@@ -70,6 +70,20 @@ def test_export_is_self_contained_and_published_with_observed_poses_only(catalog
     assert export_run(run.run_dir, repo, cad_dir=cad)["commit"] == outcome["commit"]
 
 
+def test_export_preserves_separate_stop_observation(catalogue):
+    config, _run, repo, cad = catalogue
+    config.belt_stop_enabled = True
+    run = run_experiment(config)
+    export_run(run.run_dir, repo, cad_dir=cad, push=False)
+    data = json.loads((repo / 'Cube/poses.json').read_text())
+    assert data['belt_stop_observation'] == run.summary['belt_stop_observation']
+    import csv
+    with (repo / 'Cube/trials.csv').open(newline='') as stream:
+        rows = list(csv.DictReader(stream))
+    assert json.loads(rows[0]['stop_observation'])['final_belt_speed_mm_s'] == 0
+    assert 'Ruheprüfung nach Bandstopp' in (repo / 'Cube/README.md').read_text(encoding='utf-8')
+
+
 def test_cancelled_run_and_modified_geometry_preserve_previous_catalogue(catalogue):
     config, run, repo, cad = catalogue
     export_run(run.run_dir, repo, cad_dir=cad)

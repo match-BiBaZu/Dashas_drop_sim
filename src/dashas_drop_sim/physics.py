@@ -65,6 +65,7 @@ class TrialOutcome:
     actual_lateral_mm: float | None = None
     initial_pos_chute_mm: tuple[float, ...] = ()
     belt_speed_control_points: tuple[dict, ...] = ()
+    stop_observation: dict | None = None
 
     def to_dict(self) -> dict:
         return {**asdict(self), "roughness_impulse_count": len(self.roughness_events)}
@@ -192,16 +193,27 @@ class ChuteSimulator:
             )
 
         pairs = ET.SubElement(root, "contact")
+        torsional_m = cfg.contact_torsional_friction_mm / 1000
+        rolling_m = cfg.contact_rolling_friction_mm / 1000
         for index in range(len(part.collision_mesh_paths)):
             geom = f"part_collision_{index}"
             for surface, mu in (("belt_floor", cfg.mu_belt), ("ptfe_wall", cfg.mu_wall)):
                 attributes = {
                     "geom1": geom, "geom2": surface,
-                    "condim": "1" if mu == 0 else "6",
-                    "solref": "0.005 1.2",
+                    "condim": ("1" if mu == 0 else "6" if rolling_m > 0
+                               else "4" if torsional_m > 0 else "3"),
+                    # Positive solref values are (time constant, damping
+                    # ratio), not a coefficient of restitution. Ratios below
+                    # one permit rebound; the legacy value 1.2 is overdamped.
+                    "solref": _numbers([cfg.contact_time_constant_s,
+                                        cfg.contact_damping_ratio]),
                 }
                 if mu > 0:
-                    attributes["friction"] = _numbers([mu, mu, 0.005, 0.0001, 0.0001])
+                    # MuJoCo's rotational coefficients have units of metres:
+                    # torsion is an effective contact-patch size, rolling an
+                    # effective deformation length, rather than sliding mu.
+                    attributes["friction"] = _numbers([mu, mu, torsional_m,
+                                                      rolling_m, rolling_m])
                 ET.SubElement(pairs, "pair", **attributes)
         xml = ET.tostring(root, encoding="unicode")
         try:
@@ -298,6 +310,40 @@ class ChuteSimulator:
                                      - np.mean(cross_positions[:width], axis=0)) / duration
         return bool(cross_speed <= 0.001)
 
+    def _update_roughness_markers(self, viewer, roughness) -> None:
+        """Show contact and +X force direction; marker length is schematic."""
+        scene = getattr(viewer, "user_scn", None)
+        if scene is None:
+            return
+        with viewer.lock():
+            scene.ngeom = 0
+            if roughness is None or not roughness.events or self.config.roughness_model not in {"weight_force", "weight_impulse"}:
+                return
+            event = roughness.events[-1]
+            age = self.data.time - event["time_s"]
+            if age > max(0.25, event.get("actual_duration_s", 0) + 0.1):
+                return
+            point = self.R_world_chute @ (np.asarray(event.get("last_contact_pos_chute_mm", event["contact_pos_chute_mm"])) / 1000)
+            active = event.get("pulse_status") == "active" or (event["model"] == "weight_impulse" and age < 0.04)
+            color = np.array([1, 0.15 if active else 0.8, 0.05, 1], dtype=np.float32)
+            if scene.maxgeom < 3:
+                return
+            mujoco.mjv_initGeom(scene.geoms[0], mujoco.mjtGeom.mjGEOM_SPHERE,
+                               np.array([0.002, 0.002, 0.002]), point, np.eye(3).ravel(), color)
+            # Lift the schematic arrow above the part so a contact underneath
+            # the solid cannot hide it. A leader connects it to the real point.
+            arrow_origin = point + np.array([0, 0, max(0.04, self.part.radius_m * 2)])
+            mujoco.mjv_initGeom(scene.geoms[1], mujoco.mjtGeom.mjGEOM_ARROW,
+                               np.zeros(3), arrow_origin, np.eye(3).ravel(), color)
+            mujoco.mjv_connector(scene.geoms[1], mujoco.mjtGeom.mjGEOM_ARROW, 0.0015,
+                                 arrow_origin, arrow_origin + self.R_world_chute[:, 0] * 0.035)
+            scene.geoms[1].label = (f"J={event['impulse_ns']:.4g} Ns (+X)" if event["model"] == "weight_impulse" else
+                                    f"{event['force_fraction'] * 100:g}% mg, max {event['configured_duration_s'] * 1000:g} ms (+X)")
+            mujoco.mjv_initGeom(scene.geoms[2], mujoco.mjtGeom.mjGEOM_LINE,
+                               np.zeros(3), point, np.eye(3).ravel(), color)
+            mujoco.mjv_connector(scene.geoms[2], mujoco.mjtGeom.mjGEOM_LINE, 2, point, arrow_origin)
+            scene.ngeom = 3
+
     def _run_until_end(
         self,
         *,
@@ -327,8 +373,11 @@ class ChuteSimulator:
         wall_start = time.perf_counter() if viewer is not None else 0.0
         roughness = (ContactRoughness(cfg, self.model, self.R_world_chute,
                                      self.floor_id, self.wall_id, seed)
-                     if cfg.roughness_enabled and (cfg.roughness_wall_height_mm > 0
-                                                   or cfg.roughness_belt_height_mm > 0) else None)
+                     if cfg.roughness_enabled and (
+                         (cfg.roughness_model == "weight_force" and cfg.roughness_force_fraction > 0)
+                         or (cfg.roughness_model == "weight_impulse" and cfg.roughness_impulse_delta_v_mm_s > 0)
+                         or (cfg.roughness_model not in {"weight_force", "weight_impulse"} and (
+                             cfg.roughness_wall_height_mm > 0 or cfg.roughness_belt_height_mm > 0))) else None)
         roughness_stride = max(1, round(0.005 / cfg.timestep_s))
         belt_profile = BeltSpeedProfile(cfg, seed) if cfg.belt_speed_variation_mm_s > 0 else None
         profile_start_s = float(data.time)
@@ -341,7 +390,11 @@ class ChuteSimulator:
             if belt_profile is not None:
                 self.model.geom_surfacevel[self.floor_id, 0] = (
                     belt_profile.speed_mm_s(data.time - profile_start_s) / 1000)
+            if roughness is not None:
+                roughness.prepare_step(data, cfg.timestep_s)
             mujoco.mj_step(self.model, data)
+            if roughness is not None:
+                roughness.finish_step(data, cfg.timestep_s)
             step += 1
             if roughness is not None and step % roughness_stride == 0:
                 roughness.advance(data, roughness_stride * cfg.timestep_s)
@@ -351,6 +404,7 @@ class ChuteSimulator:
                 viewer.cam.lookat[:] = self.R_world_chute @ np.array(
                     [self._local_position(data)[0], 0.075, 0.075]
                 )
+                self._update_roughness_markers(viewer, roughness)
                 viewer.sync()
                 remaining = data.time - (time.perf_counter() - wall_start)
                 if remaining > 0:
@@ -388,12 +442,15 @@ class ChuteSimulator:
         else:
             status = ("settled_stationary" if self._window_is_settled(history) else "unsettled_stationary") if belt_m_s == 0 else "timeout"
         final_pos = self._local_position(data)
+        if roughness is not None:
+            roughness.finalize(data)
         if viewer is not None and viewer.is_running():
+            self._update_roughness_markers(viewer, roughness)
             viewer.sync()
         floor, wall = self._contact_flags(data)
         if trace_stable and self._window_is_settled(history) and data.time > last_trace_time + 0.01:
             settled_trace.append(tuple(float(x) for x in self._local_quat(data)))
-        return TrialOutcome(
+        outcome = TrialOutcome(
             trial=trial,
             seed=seed,
             status=status,
@@ -413,6 +470,85 @@ class ChuteSimulator:
             initial_pos_chute_mm=initial_pos,
             belt_speed_control_points=belt_profile.control_points() if belt_profile is not None else (),
         )
+        # Preserve the transport measurement verbatim; the extra stationary
+        # observation has its own pose/status and never changes kick rankings.
+        if cfg.belt_stop_enabled and status in {"settled", "unsettled"} and not trace_stable:
+            outcome.stop_observation = self._observe_belt_stop(cancel=cancel, viewer=viewer)
+        return outcome
+
+    def _observe_belt_stop(self, *, cancel=None, viewer=None) -> dict:
+        """Brake at the virtual exit, then assess actual rest with no excitation.
+
+        Chute contact planes continue beyond the observation line, so the part
+        may coast freely. Only the belt speed changes: no body velocity is reset.
+        """
+        cfg, data = self.config, self.data
+        start_s = float(data.time)
+        start_pos = self._local_position(data).copy()
+        start_quat = self._local_quat(data).copy()
+        speed = float(self.model.geom_surfacevel[self.floor_id, 0])
+        ramp_steps = math.ceil(cfg.belt_stop_ramp_s / cfg.timestep_s - 1e-10)
+        wait_steps = math.ceil(cfg.belt_stop_observation_s / cfg.timestep_s - 1e-10)
+        sample_stride = max(1, round(0.01 / cfg.timestep_s))
+        viewer_stride = max(1, round(0.02 / cfg.timestep_s))
+        history: deque[tuple] = deque()
+        wall_start = time.perf_counter() if viewer is not None else 0.0
+        status = "unsettled"
+        stopped_at_s = None
+        first_rest_s = None
+        for step in range(ramp_steps + wait_steps):
+            if cancel is not None and cancel():
+                status = "cancelled"
+                break
+            # Smooth half-cosine braking; speed jitter is disabled in this phase.
+            phase = min(1.0, (step + 1) / ramp_steps)
+            self.model.geom_surfacevel[self.floor_id, 0] = speed * (1 + math.cos(math.pi * phase)) / 2
+            mujoco.mj_step(self.model, data)
+            if step + 1 == ramp_steps:
+                stopped_at_s = float(data.time)
+            if viewer is not None and (step + 1) % viewer_stride == 0 and viewer.is_running():
+                viewer.cam.lookat[:] = self.R_world_chute @ np.array([self._local_position(data)[0], 0.075, 0.075])
+                self._update_roughness_markers(viewer, None)
+                viewer.sync()
+                remaining = data.time - start_s - (time.perf_counter() - wall_start)
+                if remaining > 0:
+                    time.sleep(remaining)
+            if not np.all(np.isfinite(data.qpos)) or not np.all(np.isfinite(data.qvel)):
+                status = "invalid"
+                break
+            pos = self._local_position(data)
+            if np.min(pos[1:3]) < -0.05:
+                status = "lost"
+                break
+            if step + 1 <= ramp_steps or (step + 1 - ramp_steps) % sample_stride:
+                continue
+            floor, wall = self._contact_flags(data)
+            # Full XYZ instead of transverse YZ makes the existing filtered
+            # velocity/range check reject continued longitudinal sliding too.
+            history.append((data.time, self._local_quat(data).copy(), pos.copy(), floor, wall))
+            while history and data.time - history[0][0] > 0.51:
+                history.popleft()
+            if first_rest_s is None and self._window_is_settled(history):
+                first_rest_s = float(data.time)
+        else:
+            status = "settled" if self._window_is_settled(history) else "unsettled"
+        floor, wall = self._contact_flags(data)
+        final_quat = self._local_quat(data)
+        return {
+            "status": status,
+            "start_time_s": start_s,
+            "initial_belt_speed_mm_s": speed * 1000,
+            "stopped_at_s": stopped_at_s,
+            "end_time_s": float(data.time),
+            "first_settled_s": first_rest_s,
+            "final_belt_speed_mm_s": float(self.model.geom_surfacevel[self.floor_id, 0] * 1000),
+            "final_quat_xyzw": tuple(float(x) for x in final_quat),
+            "final_pos_chute_mm": tuple(float(x * 1000) for x in self._local_position(data)),
+            "final_qpos": tuple(float(x) for x in data.qpos[:7]),
+            "final_floor_contact": floor, "final_wall_contact": wall,
+            "coast_distance_mm": float((self._local_position(data)[0] - start_pos[0]) * 1000),
+            "orientation_change_deg": math.degrees(2 * math.acos(min(1.0, abs(float(start_quat @ final_quat))))),
+        }
 
     def drop(
         self,

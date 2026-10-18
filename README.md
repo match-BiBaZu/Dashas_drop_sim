@@ -27,7 +27,7 @@ und kann parallel zu den anderen GUIs laufen. Bei parallelen Simulationen
 teilen sich die Prozesse lediglich CPU und Arbeitsspeicher.
 
 **Als Standard speichern** speichert die Eingaben für **Fallversuche**,
-**Erweiterte Simulationsparameter** und **Kratzer und Dellen** einschließlich
+**Erweiterte Simulationsparameter** und **Unebenheiten und zufällige Kontaktkräfte** einschließlich
 der Streubereiche sowie die ausgewählten Datei- und Ordnerpfade. Die GUI lädt
 sie beim nächsten Start automatisch. Das Speichern der Parameter funktioniert
 auch vor der Auswahl eines Werkstücks. Änderungen werden beim Drücken dieses
@@ -181,19 +181,163 @@ Werte ebenfalls; das Manifest dokumentiert die konfigurierte Abwurfverteilung.
 
 ### Zufällige Impulse durch Kratzer und Dellen
 
-Im GUI-Bereich **Kratzer und Dellen** aktiviert **Zufällige Unebenheitsimpulse**
+Im GUI-Bereich **Unebenheiten und zufällige Kontaktkräfte** aktiviert **Zufällige Kontaktstörungen**
 ein statistisches Ersatzmodell für kleine Oberflächenfehler. Es wird kein
 konkreter Kratzer und kein fester Oberflächenplan modelliert. Vorgaben für die
 PTFE-Wand sind maximal 0,1 mm wirksame Kantenhöhe, 3 mm wirksame Kantenlänge und
 10 mm mittlerer Abstand. Das sind unkalibrierte Startschätzungen. Für das Band
 ist die Kantenhöhe zunächst 0 mm; beide Flächen sind unabhängig einstellbar.
-Die Funktion ist standardmäßig ausgeschaltet und gilt bei Aktivierung für
-Abwürfe sowie die anschließenden Störversuche. In der GUI wählt man zwischen
+In einer neuen GUI sind vollständige Einzelimpulse mit 49,05 mm/s,
+0,2 s mittlerem Abstand und **1 s Anfangsanregung** als Startwerte aktiviert. Explizit gespeicherte
+Einstellungen haben Vorrang. CLI-Konfigurationen ohne Störungsfelder behalten
+die bisherigen deaktivierten Vorgaben. Die Funktion gilt bei Aktivierung für
+Abwürfe sowie die anschließenden Störversuche. Die GUI enthält die Rauheitsmodi
 **Kontaktimpulse entlang der Rutsche** (neue Hauptoption) und
-**Flache Unebenheitsstöße mit Reibung** (Vergleichsoption). Gespeicherte ältere
+**Flache Unebenheitsstöße mit Reibung** (Vergleichsoption) sowie die unten
+beschriebenen Gewichtskraft-Pulse und vollständigen Einzelimpulse. Gespeicherte ältere
 Konfigurationen ohne `roughness_model` verwenden jetzt die Hauptoption; der
 Manifest-Eintrag dokumentiert die Modellversion. Für Vergleiche mit früheren
 Ergebnissen ist diese Änderung zu berücksichtigen.
+
+#### Kraftpulse als Anteil der Gewichtskraft
+
+Die zusätzliche Option **Kraftpulse als Anteil der Gewichtskraft** wirkt über
+eine endliche Dauer in Rutschenrichtung **+X**. Ein zufällig ausgewählter,
+belasteter MuJoCo-Kontakt mit Band oder Wand erhält die Kraft
+`F = roughness_force_fraction × Masse × 9,81 m/s²`. Der Hebelarm zum Schwerpunkt
+erzeugt dabei ein Drehmoment. Es wird keine Pose bevorzugt oder erzwungen.
+
+Einstellbare Startwerte sind **10 %**, **50 ms** Pulsdauer und **200 ms** mittlere
+Pause. Die Pausen werden exponentiell verteilt gezogen; Pulse überlappen nicht.
+Ein fälliger Start ohne belasteten Kontakt wird übersprungen. Der Kontaktpunkt
+wird während des Pulses geometrisch nachgeführt. Kurzzeitig null berechnete
+Normallast beendet einen weiterhin berührenden Kontakt nicht. Fehlt die
+ursprüngliche Fläche, wird zum nächsten tatsächlichen Kontakt mit der anderen
+Rutschenfläche gewechselt; solche Wechsel stehen im Ereignisprotokoll.
+Erst der Verlust sämtlicher Rutschenkontakte beendet den Puls. Eine numerische
+Berührungstoleranz von 0,1 µm fängt Rundungsfehler ab. Im Flug wird keine Kraft angelegt. Die
+Kontaktprüfung erfolgt vor jedem Physikschritt. Innerhalb eines Schrittes
+verlorener Kontakt wird beim nächsten Schritt erkannt.
+
+Die Kraft wirkt auch bei fehlendem Schlupf. Höhe, Länge und Abstand der
+Rauheit sind in diesem Modus ohne Wirkung. Das Modell stellt eine externe
+mechanische Anregung dar und kann Energie zuführen. Es ist kein passives
+Reibmodell und kein vermessenes Oberflächenprofil. Die Parameter sind
+unkalibrierte Vergleichswerte; für realistische Häufigkeiten müssen sie anhand
+realer Versuche angepasst werden. Eine longitudinale Kraft allein ist keine
+zusätzliche vertikale Sprungkraft.
+
+```json
+{
+  "roughness_enabled": true,
+  "roughness_model": "weight_force",
+  "roughness_force_fraction": 0.1,
+  "roughness_force_duration_s": 0.05,
+  "roughness_force_interval_s": 0.2,
+  "contact_time_constant_s": 0.005,
+  "contact_damping_ratio": 0.5,
+  "contact_torsional_friction_mm": 5.0,
+  "contact_rolling_friction_mm": 0.1
+}
+```
+
+Das ist ein Parameterfragment; Bauteil und Ausgabeordner müssen ergänzt werden.
+Im sichtbaren Lauf markieren ein Punkt und ein Pfeil den Angriffsort und die
+Richtung. Rot bezeichnet einen aktiven Puls, Gelb einen kürzlich beendeten.
+Die Markierung hat eine kurze Nachanzeige und eine schematische Länge;
+ein neuer Puls ersetzt die vorherige Markierung. Die Nachanzeige verlängert
+die physikalische Pulsdauer nicht.
+`roughness_events.csv` und `.jsonl` enthalten Kraft in N, konfigurierte und
+tatsächliche Dauer, tatsächlichen Impuls in N·s, Drehimpuls und Abbruchstatus.
+Für einen ununterbrochenen Puls gilt `Impuls = F × Dauer`. Bei 10 % und 50 ms
+entspricht dies ohne Kontaktwiderstände `Δv = 49,05 mm/s`. Die protokollierte
+Kraftarbeit ist eine Trapezschätzung und keine isolierte Messung der Änderung
+der gesamten kinetischen Energie (`energy_semantics`).
+
+#### Vollständige Einzelimpulse
+
+Die GUI-Option **Einzelimpulse mit vollständigem Kraftstoß** setzt einen
+einmaligen Kraftstoß **J** am zufälligen belasteten Kontaktpunkt mit Band oder
+Wand an. Die Stärke wird als **Freier Geschwindigkeitsstoß (J/m)** in mm/s
+eingegeben: `J = Bauteilmasse × roughness_impulse_delta_v_mm_s / 1000` in N·s.
+Die GUI zeigt für STL-Dateien den resultierenden Kraftstoß und die Modellmasse.
+Bei STEP-Dateien erscheint der Wert nach der Modellvorbereitung; der Lauf
+protokolliert stets die tatsächliche Masse und Stärke.
+
+Der Startwert **49,05 mm/s** entspricht `0,1 × g × 50 ms`. Ein kräftiger
+Diagnosewert **490,5 mm/s** entspricht `g × 50 ms`. Beide Werte beschreiben
+den vollständigen Kraftstoß pro Masse, keine Anwendungsdauer. Die bisherige
+Pulsdauer und der Gewichtskraftanteil haben in diesem Modus keine Wirkung.
+Dies ist auch die GUI-Vorgabe ohne bereits gespeicherte Einstellungen.
+
+**Dauer der Anfangsanregung** begrenzt alle zufälligen Kontaktstörungen auf
+den Anfang des Versuchs. Mit `roughness_active_duration_s: 1.0` endet die
+Anregung nach 1 s; anschließend läuft das Bauteil ohne weitere Kontaktstörungen
+bis zum Ausgang. Das erleichtert die Einpendelprüfung der letzten 0,5 s.
+Die Prüfkriterien werden dabei nicht gelockert. Das Zeitfenster beginnt mit
+der Fallbeobachtung, einschließlich Freiflug beim Abwurf; bei Störversuchen
+beginnt es nach dem Wiedereinsetzen. Aktive Kraftpulse werden am Fensterende
+mit `pulse_status: window_end` beendet. Eine spätere erneute Berührung öffnet
+das Fenster nicht wieder. Bandgeschwindigkeitsschwankungen bleiben aktiv.
+
+`0` beziehungsweise **Ganzer Lauf** schaltet die Begrenzung aus. Ältere
+CLI-Konfigurationen ohne das Feld behalten diese bisherige Betriebsart.
+Es werden nur vollständige Physikschritte innerhalb des Fensters angeregt;
+die tatsächliche Grenze kann deshalb um weniger als einen Zeitschritt vor
+dem eingestellten Ende liegen. Die Angabe in `manifest.json` dokumentiert
+das Fenster. Für kürzere Strecken oder schnellere Transporte muss genügend
+Auslauf nach der gewählten Anfangszeit vorgesehen werden.
+
+```json
+{
+  "roughness_enabled": true,
+  "roughness_model": "weight_impulse",
+  "roughness_impulse_delta_v_mm_s": 49.05,
+  "roughness_force_interval_s": 0.2,
+  "roughness_active_duration_s": 1.0
+}
+```
+
+Ein fälliges Ereignis wird nur bei einem belasteten, geometrisch berührenden
+Kontakt ausgelöst, im Flug übersprungen. Die Wartezeit ist exponentiell
+verteilt. Der Stoß wird einmal vor einem Physikschritt über Kontakt-Jacobian
+und Massenmatrix auf die Geschwindigkeiten übertragen; der Hebelarm erzeugt
+Winkelgeschwindigkeit. Danach lösen MuJoCos reguläre Kontakte die Bewegung
+weiter auf. Eine spätere Ablösung kürzt den bereits übertragenen Stoß nicht.
+Die Bauteilorientierung wird nicht direkt gesetzt.
+
+Ereigniszeiten liegen auf Integrationsgrenzen. `requested_time_s`, `time_s`
+und `scheduling_delay_s` dokumentieren die Rundung um höchstens einen
+Zeitschritt. Es wird höchstens ein Stoß je Schritt ausgeführt, ohne
+nachgeholte Ereignisbündel. `actual_duration_s = 0` kennzeichnet den
+Geschwindigkeitssprung; `impulse_ns` enthält dennoch den vollständigen
+Kraftstoß. Die Energieänderung beim Stoß ist aus der Punktgeschwindigkeit
+und der effektiven Masse berechnet (`instantaneous_velocity_jump`). Das
+ist eine externe, unkalibrierte Anregung mit möglicher Energiezufuhr.
+
+Im echten Regressionstest steht die originale Dk1i-Geometrie auf ihrer
+dreieckigen Stirnfläche und gleitet ohne Störung bis zum Rutschenende mit
+weniger als 1° Orientierungsänderung. Ein einmaliger Stoß von **490,5 mm/s**
+nach 1 s kippt die Längsachse um etwa **90°**; die andere Lage bleibt bis
+zum Ausgang erhalten. `tests/test_impulse_tipping.py` prüft diesen Ablauf.
+Das ist ein Funktionsnachweis, keine Kalibrierung realer Unebenheiten.
+
+#### Kontaktfederung und Drehreibung
+
+**Kontakt-Dämpfungsverhältnis** und **Kontakt-Zeitkonstante** steuern MuJoCos
+`solref`. Der bisher feste Wert 1,2 ist überdämpft; 1 ist kritisch gedämpft,
+ein Wert unter 1 erlaubt mehr Rücksprung. Ein Startwert 0,5 ist ein Vergleich,
+kein gemessener Rückprallkoeffizient. Die Zeitkonstante muss mindestens zwei
+Zeitschritte betragen. Alte Konfigurationen ohne diese Felder behalten 1,2
+und 5 ms. Siehe [MuJoCo Kontaktparameter](https://mujoco.readthedocs.io/en/3.14.0/modeling.html#solver-parameters).
+
+Die bisherigen Werte für **Torsionsreibung** (5 mm) und **Rollreibung**
+(0,1 mm) sind ebenfalls einstellbar. Diese effektiven Längen beschreiben
+Widerstand gegen Kontaktrotation und können kleine Bauteile zusätzlich
+stabilisieren. Beide auf null deaktiviert diese zusätzlichen
+Rotationswiderstände, während Gleitreibung erhalten bleibt. Die bestehenden
+Werte bleiben für Vergleiche verfügbar; sie sind keine vermessenen
+Materialkennwerte. Siehe [MuJoCo Reibungsdimensionen](https://mujoco.readthedocs.io/en/3.14.0/computation/index.html#condim).
 
 #### Kontaktimpulse entlang der Rutsche
 
@@ -269,7 +413,7 @@ Höhe/Kantenlänge darf höchstens 0,25 betragen. Eine gemessene Kratzertiefe
 bestimmt die reale Impulsstärke nicht allein: Bis zur Kalibrierung an
 Transportversuchen sollten Höhe, Kantenlänge und Abstand variiert werden.
 
-Beide Optionen speichern zusätzlich die **X-Komponente des Kraftimpulses**,
+Die beiden Rauheitsmodi speichern zusätzlich die **X-Komponente des Kraftimpulses**,
 das Drehimpuls-Vektorprodukt `Hebelarm × Impuls`, Normalkraft, Reibanteil,
 wirksame Kontaktzonendauer sowie die aktuelle Bandgeschwindigkeit in den
 Unebenheitsereignissen. Beide erzeugen keine zusätzliche kinetische Energie
@@ -396,6 +540,7 @@ Jede Serie erhält einen eigenen Ordner `run_<UTC-Zeitstempel>_<Seed>` unter
 | `trials.jsonl` | Während des Laufs fortlaufend geschrieben; am Ende mit fertiger Pose-Zuordnung |
 | `trials.csv` | Jeder Abwurf mit Seed, Endorientierung, Status und fertiger Zuordnung |
 | `frequencies.csv` | Anzahl, Anteil und 95-%-Konfidenzintervall je Pose oder Status |
+| `stop_observations.csv` | Zusätzliche Ruheprüfung nach Bandstopp mit Fahrstatus, Ruhepose und Nachlaufweg |
 | `disturbances.csv` | Einzelne Störversuche nach Pose, Richtung und Stärke |
 | `roughness_events.csv` / `.jsonl` | Jeder Unebenheitsimpuls mit Phase, Versuch, Kontaktpunkt, Relativgeschwindigkeit, Impuls in N·s und Energieänderung |
 | `stability.csv` | Pose-Erhalt je Störstärke als Störkurve |
@@ -419,6 +564,35 @@ Zwischenlagen; die normierte Fläche dient
 als Rangmaß. Es gibt keinen vorgegebenen Grenzwert für „stabil“.
 
 Roadmaps und deren Nummerierung werden ausschließlich in der separaten Roadmap-App bearbeitet.
+
+### Ruheprüfung nach Bandstopp
+
+Die GUI-Option **Am Streckenende anhalten und Ruhe prüfen** ist zunächst
+eingeschaltet. Nach der regulären Messung am virtuellen Streckenende bremst
+das Band mit einer glatten Kosinusrampe auf null (Startwert **0,2 s**). Danach
+läuft die Simulation noch **2 s** ohne Bandgeschwindigkeitsschwankungen oder
+Kontaktstörungen. Die Bremsdauer und Beobachtungsdauer sind einstellbar.
+Das Bauteil wird dabei weder fixiert noch seine Geschwindigkeit zurückgesetzt.
+Die idealisierten Kontaktflächen setzen sich hinter der Messlinie fort;
+ein physischer Abwurf von einer Bandkante wird nicht simuliert.
+
+Der Reiter **Nach Bandstopp** zeigt je Abwurf den Status während der Fahrt und
+nach dem Anhalten sowie die dann gemessene Pose. Als ruhig zählt nur eine
+Lage mit stabilem Kontakt und stabiler Orientierung über das letzte
+0,5-s-Fenster; zusätzlich wird die Bewegung in allen drei Raumrichtungen
+geprüft (Positionsspanne höchstens 1 mm und gefilterte Geschwindigkeit
+höchstens 1 mm/s). Weiterrollende oder gleitende Teile bleiben `unsettled`.
+Die volle Beobachtungsdauer läuft auch nach einem ersten Einpendeln weiter.
+
+Die Fahrmessung und ihre Häufigkeiten bleiben unverändert. Die Ruheprüfung
+steht separat in `trials.jsonl` als `stop_observation`, in
+`stop_observations.csv` und in `summary.json` unter `belt_stop_observation`.
+Der Katalogexport enthält die Zusatzprüfung in seiner Versuchstabelle und
+eine getrennte Zusammenfassung; sie ersetzt nicht die Fahrposen im Katalog.
+Die Störkurven prüfen weiterhin das laufende Band.
+Für JSON-Konfigurationen heißen die Optionen `belt_stop_enabled`,
+`belt_stop_ramp_s` und `belt_stop_observation_s`; ohne Angabe bleibt die
+Zusatzprüfung dort aus, damit ältere Konfigurationen dieselben Versuche ausführen.
 
 ## Physikalische Annahmen und Grenzen
 

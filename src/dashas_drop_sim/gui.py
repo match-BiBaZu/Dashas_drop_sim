@@ -52,11 +52,13 @@ from .batch import Workpiece, batch_configs
 from .resources import cad_directory, local_geometry_path
 from .catalog import SOURCE_COMMIT, catalog_models
 from .pose_image import render_pose_image
-from .settings import default_settings_path, load_defaults, save_defaults
+from .settings import GUI_INITIAL_PARAMETERS, default_settings_path, load_defaults, save_defaults
 
 
 def _default(name: str, fallback: Any) -> Any:
     """Read dataclass defaults without requiring a valid input model."""
+    if name in GUI_INITIAL_PARAMETERS:
+        return GUI_INITIAL_PARAMETERS[name]
     try:
         field = next(item for item in fields(RunConfig) if item.name == name)
     except (TypeError, StopIteration):
@@ -198,6 +200,19 @@ class DropSimulationWindow(QMainWindow):
             "Abstand zwischen zufälligen Geschwindigkeitswerten; Übergänge sind glatt. "
             "0,2 s ist eine ungemessene Startannahme.")
         form.addRow("Änderungsintervall Band", self.belt_interval_spin)
+        self.belt_stop_check = QCheckBox("Am Streckenende anhalten und Ruhe prüfen")
+        self.belt_stop_check.setChecked(bool(_default("belt_stop_enabled", False)))
+        self.belt_stop_check.setToolTip("Zusatzprüfung nach der Messung während der Fahrt. Band bremsen, dann ohne Impulse beobachten. Die Rutsche setzt sich hinter der virtuellen Messlinie fort.")
+        form.addRow(self.belt_stop_check)
+        self.belt_stop_ramp_spin = _spin(_default("belt_stop_ramp_s", 0.2), 0.02, 10, 3, 0.05)
+        self.belt_stop_ramp_spin.setSuffix(" s")
+        self.belt_stop_wait_spin = _spin(_default("belt_stop_observation_s", 2.0), 0.6, 60, 2, 0.5)
+        self.belt_stop_wait_spin.setSuffix(" s")
+        form.addRow("Bremsdauer Band", self.belt_stop_ramp_spin)
+        form.addRow("Beobachtung nach Stillstand", self.belt_stop_wait_spin)
+        for widget in (self.belt_stop_ramp_spin, self.belt_stop_wait_spin):
+            widget.setEnabled(self.belt_stop_check.isChecked())
+            self.belt_stop_check.toggled.connect(widget.setEnabled)
         self.height_spin = _spin(_default("drop_height_mm", 100), 0, 200)
         self.height_spin.setSuffix(" mm")
         self.height_spread_spin = _spin(_default("drop_height_spread_mm", 0), 0, 100)
@@ -232,14 +247,16 @@ class DropSimulationWindow(QMainWindow):
         form.addRow("", note)
         layout.addWidget(parameters)
 
-        roughness_group = QGroupBox("Kratzer und Dellen")
+        roughness_group = QGroupBox("Unebenheiten und zufällige Kontaktkräfte")
         roughness_layout = QVBoxLayout(roughness_group)
-        self.roughness_check = QCheckBox("Zufällige Unebenheitsimpulse aktivieren")
+        self.roughness_check = QCheckBox("Zufällige Kontaktstörungen aktivieren")
         self.roughness_check.setChecked(bool(_default("roughness_enabled", False)))
         roughness_layout.addWidget(self.roughness_check)
         self.roughness_model_combo = QComboBox()
         self.roughness_model_combo.addItem("Kontaktimpulse entlang der Rutsche", "longitudinal_traction")
         self.roughness_model_combo.addItem("Flache Unebenheitsstöße mit Reibung", "microfacet")
+        self.roughness_model_combo.addItem("Kraftpulse als Anteil der Gewichtskraft", "weight_force")
+        self.roughness_model_combo.addItem("Einzelimpulse mit vollständigem Kraftstoß", "weight_impulse")
         self.roughness_model_combo.setCurrentIndex(max(0, self.roughness_model_combo.findData(
             _default("roughness_model", "longitudinal_traction"))))
         self.roughness_model_combo.setEnabled(self.roughness_check.isChecked())
@@ -265,14 +282,59 @@ class DropSimulationWindow(QMainWindow):
         self.roughness_check.toggled.connect(
             lambda checked: [spin.setEnabled(checked) for spin in self.roughness_spins.values()])
         roughness_layout.addLayout(roughness_grid)
+        self.force_fraction_spin = _spin(_default("roughness_force_fraction", 0.1) * 100, 0, 100, 1, 1)
+        self.force_fraction_spin.setSuffix(" %")
+        self.force_duration_spin = _spin(_default("roughness_force_duration_s", 0.05), 0.001, 1, 3, 0.01)
+        self.force_duration_spin.setSuffix(" s")
+        self.force_interval_spin = _spin(_default("roughness_force_interval_s", 0.2), 0.001, 10, 3, 0.05)
+        self.force_interval_spin.setSuffix(" s")
+        self.impulse_delta_v_spin = _spin(_default("roughness_impulse_delta_v_mm_s", 49.05), 0, 1000, 2, 5)
+        self.impulse_delta_v_spin.setSuffix(" mm/s")
+        self.impulse_delta_v_spin.setToolTip("Kraftstoß pro Bauteilmasse: J/m. Freie Geschwindigkeitsänderung vor der anschließenden Kontaktauflösung.")
+        self.impulse_strength_label = QLabel()
+        self.impulse_strength_label.setWordWrap(True)
+        self._impulse_volume_cache = {}
+        self._prepared_mass = None
+        self.force_panel = QWidget()
+        force_form = QFormLayout(self.force_panel)
+        self.force_fraction_label = QLabel("Kraftanteil an Gewichtskraft")
+        self.force_duration_label = QLabel("Pulsdauer")
+        self.force_interval_label = QLabel("Mittlere Pause zwischen Pulsen")
+        self.impulse_delta_v_label = QLabel("Freier Geschwindigkeitsstoß (J/m)")
+        force_form.addRow(self.force_fraction_label, self.force_fraction_spin)
+        force_form.addRow(self.force_duration_label, self.force_duration_spin)
+        force_form.addRow(self.impulse_delta_v_label, self.impulse_delta_v_spin)
+        force_form.addRow(self.force_interval_label, self.force_interval_spin)
+        force_form.addRow(self.impulse_strength_label)
+        self.impulse_delta_v_spin.valueChanged.connect(self._update_impulse_strength)
+        self.density_spin.valueChanged.connect(self._update_impulse_strength)
+        self._impulse_preview_timer = QTimer(self)
+        self._impulse_preview_timer.setSingleShot(True)
+        self._impulse_preview_timer.timeout.connect(self._update_impulse_strength)
+        self.mesh_edit.textChanged.connect(lambda: self._impulse_preview_timer.start(200))
+        roughness_layout.addWidget(self.force_panel)
+        activity_form = QFormLayout()
+        self.roughness_duration_spin = _spin(_default("roughness_active_duration_s", 1.0), 0, 3600, 3, 0.1)
+        self.roughness_duration_spin.setSuffix(" s")
+        self.roughness_duration_spin.setSpecialValueText("Ganzer Lauf")
+        self.roughness_duration_spin.setToolTip("Zeit ab Versuchsbeginn, einschließlich Abwurf. Danach keine weiteren Kontaktstörungen. 0 = ganzer Lauf.")
+        activity_form.addRow("Dauer der Anfangsanregung", self.roughness_duration_spin)
+        roughness_layout.addLayout(activity_form)
+        self.roughness_model_combo.currentIndexChanged.connect(self._update_roughness_controls)
+        self.roughness_check.toggled.connect(self._update_roughness_controls)
         roughness_note = QLabel(
-            "Statistisches Ersatzmodell: Kontaktimpulse entlang der Rutsche oder flache Unebenheitsstöße. "
-            "Normalkraft, Relativgeschwindigkeit und Höhe/Länge bestimmen die Impulsstärke, "
-            "der Abstand die Häufigkeit entlang des relativen Gleitwegs. "
-            "Wandwerte sind Startschätzungen; 0 mm Höhe schaltet eine Fläche aus."
+            "Kraftpulse: F = Anteil × Masse × 9,81 m/s², entlang der Rutsche (+X) an einem zufälligen "
+            "belasteten Kontakt mit Band oder Wand. Kontaktverlust beendet diesen Kraftpuls. "
+            "Einzelimpulse übertragen dagegen J = Masse × Geschwindigkeitsstoß einmal vollständig "
+            "am Kontaktpunkt; die eingegebene Stärke ist J/m, keine Pulsdauer. "
+            "Die Pausen sind zufällig; beide Modelle wirken auch ohne Schlupf, führen Energie zu und müssen "
+            "an realen Versuchen abgeglichen werden. In den beiden Rauheitsmodellen gelten "
+            "stattdessen Kantenhöhe, Kantenlänge und Abstand entlang des Gleitwegs. "
+            "Nach der Anfangsanregung bleiben die Kontaktstörungen ausgeschaltet, damit das Teil einpendeln kann."
         )
         roughness_note.setWordWrap(True)
         roughness_layout.addWidget(roughness_note)
+        self._update_roughness_controls()
         layout.addWidget(roughness_group)
 
         advanced = QGroupBox("Erweiterte Simulationsparameter")
@@ -289,6 +351,20 @@ class DropSimulationWindow(QMainWindow):
         self.timestep_spin = _spin(_default("timestep_s", 0.002), 0.0001, 0.01, 5, 0.0001)
         self.timestep_spin.setSuffix(" s")
         advanced_form.addRow("Zeitschritt", self.timestep_spin)
+        self.contact_time_spin = _spin(_default("contact_time_constant_s", 0.005),
+                                       2 * self.timestep_spin.value(), 0.1, 5, 0.001)
+        self.contact_time_spin.setSuffix(" s")
+        self.timestep_spin.valueChanged.connect(lambda value: self.contact_time_spin.setMinimum(2 * value))
+        advanced_form.addRow("Kontakt-Zeitkonstante", self.contact_time_spin)
+        self.contact_damping_spin = _spin(_default("contact_damping_ratio", 1.2), 0.1, 2, 2, 0.05)
+        self.contact_damping_spin.setToolTip("Unter 1: federnder Kontakt; 1: kritisch gedämpft; über 1: überdämpft. Kein direkter Rückprallkoeffizient.")
+        advanced_form.addRow("Kontakt-Dämpfungsverhältnis", self.contact_damping_spin)
+        self.torsional_friction_spin = _spin(_default("contact_torsional_friction_mm", 5), 0, 20, 3, 0.1)
+        self.torsional_friction_spin.setSuffix(" mm")
+        self.rolling_friction_spin = _spin(_default("contact_rolling_friction_mm", 0.1), 0, 5, 3, 0.01)
+        self.rolling_friction_spin.setSuffix(" mm")
+        advanced_form.addRow("Torsionsreibung (wirksame Länge)", self.torsional_friction_spin)
+        advanced_form.addRow("Rollreibung (wirksame Länge)", self.rolling_friction_spin)
         levels = _default("disturbance_levels_mm", (0.5, 1.0, 2.0))
         self.levels_edit = QLineEdit(", ".join(str(v) for v in levels))
         self.levels_edit.setToolTip("Kommagetrennte Stufen für die reproduzierbaren Störversuche")
@@ -412,6 +488,16 @@ class DropSimulationWindow(QMainWindow):
         preview_layout.addWidget(self.preview_image_button)
         self._preview_record: dict[str, Any] | None = None
         self.tabs.addTab(preview_tab, "Letzter Versuch")
+        stop_tab = QWidget()
+        stop_layout = QVBoxLayout(stop_tab)
+        self.stop_summary_label = QLabel("Zusätzliche Ruheprüfung nach der Fahrt; Häufigkeiten beziehen sich weiterhin auf das laufende Band.")
+        self.stop_summary_label.setWordWrap(True)
+        stop_layout.addWidget(self.stop_summary_label)
+        self.stop_table = QTableWidget(0, 7)
+        self.stop_table.setHorizontalHeaderLabels(["Versuch", "Während Fahrt", "Nach Bandstopp", "Roadmap-Pose", "Drehung (°)", "Nachlauf (mm)", "Ruhepose"])
+        self.stop_table.horizontalHeader().setStretchLastSection(True)
+        stop_layout.addWidget(self.stop_table)
+        self.tabs.addTab(stop_tab, "Nach Bandstopp")
         layout.addWidget(self.tabs)
 
         self.log = QTextEdit()
@@ -569,13 +655,72 @@ class DropSimulationWindow(QMainWindow):
             "belt_speed_mm_s": self.belt_spin,
             "belt_speed_variation_mm_s": self.belt_variation_spin,
             "belt_variation_interval_s": self.belt_interval_spin,
+            "belt_stop_ramp_s": self.belt_stop_ramp_spin,
+            "belt_stop_observation_s": self.belt_stop_wait_spin,
             "drop_height_mm": self.height_spin, "drop_height_spread_mm": self.height_spread_spin,
             "lateral_mm": self.lateral_spin, "lateral_spread_mm": self.lateral_spread_spin,
             "density_g_cm3": self.density_spin, "mu_belt": self.belt_mu_spin, "mu_wall": self.wall_mu_spin,
             "alpha_deg": self.alpha_spin, "beta_deg": self.beta_spin,
             "length_mm": self.length_spin, "timestep_s": self.timestep_spin,
+            "contact_time_constant_s": self.contact_time_spin,
+            "contact_damping_ratio": self.contact_damping_spin,
+            "contact_torsional_friction_mm": self.torsional_friction_spin,
+            "contact_rolling_friction_mm": self.rolling_friction_spin,
+            "roughness_force_fraction": self.force_fraction_spin,
+            "roughness_force_duration_s": self.force_duration_spin,
+            "roughness_force_interval_s": self.force_interval_spin,
+            "roughness_impulse_delta_v_mm_s": self.impulse_delta_v_spin,
+            "roughness_active_duration_s": self.roughness_duration_spin,
             **self.roughness_spins,
         }
+
+    def _update_roughness_controls(self, *_args) -> None:
+        enabled = self.roughness_check.isChecked()
+        mode = self.roughness_model_combo.currentData()
+        force_mode = mode in {"weight_force", "weight_impulse"}
+        impulse_mode = mode == "weight_impulse"
+        for spin in self.roughness_spins.values():
+            spin.setEnabled(enabled and not force_mode)
+        self.force_panel.setVisible(force_mode)
+        self.force_panel.setEnabled(enabled)
+        self.roughness_duration_spin.setEnabled(enabled)
+        for widget in (self.force_fraction_label, self.force_fraction_spin,
+                       self.force_duration_label, self.force_duration_spin):
+            widget.setVisible(not impulse_mode)
+        for widget in (self.impulse_delta_v_label, self.impulse_delta_v_spin, self.impulse_strength_label):
+            widget.setVisible(impulse_mode)
+        self.force_interval_label.setText("Mittlerer Abstand zwischen Einzelimpulsen" if impulse_mode
+                                          else "Mittlere Pause zwischen Pulsen")
+        self._update_impulse_strength()
+
+    def _update_impulse_strength(self, *_args) -> None:
+        speed = self.impulse_delta_v_spin.value() / 1000
+        path = Path(self.mesh_edit.text()).expanduser()
+        density = self.density_spin.value()
+        mass = None
+        prepared = self._prepared_mass
+        if prepared is not None and prepared[:2] == (str(path.resolve()), density):
+            mass = prepared[2]
+        elif path.suffix.lower() == ".stl" and path.is_file():
+            try:
+                import trimesh
+                stat = path.stat()
+                key = (str(path.resolve()), stat.st_mtime_ns, stat.st_size)
+                if key not in self._impulse_volume_cache:
+                    mesh = trimesh.load_mesh(path, force="mesh", process=True)
+                    self._impulse_volume_cache[key] = float(mesh.volume) if mesh.is_volume else None
+                volume = self._impulse_volume_cache[key]
+                if volume is not None:
+                    mass = volume * density * 1e-6
+            except (OSError, ValueError, ImportError):
+                pass
+        if mass is not None:
+            self.impulse_strength_label.setText(
+                f"Vollständiger Kraftstoß J = {mass * speed:.6g} N·s; Modellmasse {mass * 1000:.4g} g. "
+                "Die Kontakte bestimmen die anschließende Bewegung.")
+        else:
+            self.impulse_strength_label.setText(
+                f"J = Bauteilmasse × {speed:g} N·s/kg. Die Stärke in N·s wird nach der Modellvorbereitung angezeigt.")
 
     def _parameter_values(self) -> dict[str, Any]:
         level_text = self.levels_edit.text().strip()
@@ -585,7 +730,9 @@ class DropSimulationWindow(QMainWindow):
             raise ValueError("Störstufen bitte als kommagetrennte Zahlen eingeben.") from exc
         if not levels:
             raise ValueError("Mindestens eine Störstufe ist erforderlich.")
-        return {**{name: widget.value() for name, widget in self._parameter_widgets().items()},
+        values = {name: widget.value() for name, widget in self._parameter_widgets().items()}
+        values["roughness_force_fraction"] /= 100
+        return {**values,
                 "grouping_enabled": self.grouping_check.isChecked(),
                 "grouping_barrier_mm": self.grouping_barrier_spin.value(),
                 "grouping_max_angle_deg": self.grouping_angle_spin.value(),
@@ -593,6 +740,7 @@ class DropSimulationWindow(QMainWindow):
                 "compute_stability": self.compute_stability_check.isChecked(),
                 "catalog_push": self.catalog_push_check.isChecked(),
                 "roughness_enabled": self.roughness_check.isChecked(),
+                "belt_stop_enabled": self.belt_stop_check.isChecked(),
                 "roughness_model": self.roughness_model_combo.currentData(), "disturbance_levels_mm": levels}
 
     def _save_defaults(self) -> None:
@@ -623,9 +771,11 @@ class DropSimulationWindow(QMainWindow):
         parameters = data["parameters"]
         for name, widget in self._parameter_widgets().items():
             if name in parameters:
-                widget.setValue(parameters[name])
+                widget.setValue(parameters[name] * (100 if name == "roughness_force_fraction" else 1))
         if "roughness_enabled" in parameters:
             self.roughness_check.setChecked(parameters["roughness_enabled"])
+        if "belt_stop_enabled" in parameters:
+            self.belt_stop_check.setChecked(parameters["belt_stop_enabled"])
         self.compute_stability_check.setChecked(parameters.get("compute_stability", True))
         self.grouping_check.setChecked(parameters.get("grouping_enabled", False))
         self.grouping_barrier_spin.setValue(parameters.get("grouping_barrier_mm", .5))
@@ -642,6 +792,8 @@ class DropSimulationWindow(QMainWindow):
                            ("observed_catalog_path", self.observed_catalog_edit)):
             if name in data["inputs"]:
                 value = data["inputs"][name]
+                if name == "catalog_repo" and not value:
+                    continue
                 if value and name in {"mesh_path", "catalog_cad_dir"}:
                     value = str(local_geometry_path(value))
                 edit.setText(value)
@@ -825,6 +977,7 @@ class DropSimulationWindow(QMainWindow):
         self._output_dir = config.output_dir
         self._run_started_at = 0
         self._mode = "run"
+        self.stop_table.setRowCount(0)
         self.result_table.setRowCount(0)
         self.stability_rank_table.setRowCount(0)
         self.stability_curve_table.setRowCount(0)
@@ -859,6 +1012,8 @@ class DropSimulationWindow(QMainWindow):
         self._stdout_buffer = ""
         self._stderr_buffer = ""
         self._cancel_requested = False
+        self.stop_table.setRowCount(0)
+        self.stop_summary_label.setText("Zusätzliche Ruheprüfung nach der Fahrt; Häufigkeiten beziehen sich weiterhin auf das laufende Band.")
         self.result_table.setRowCount(0)
         self.stability_rank_table.setRowCount(0)
         self.stability_curve_table.setRowCount(0)
@@ -976,6 +1131,12 @@ class DropSimulationWindow(QMainWindow):
             if event.get("run_dir"):
                 self._run_dir = Path(str(event["run_dir"]))
                 self._log_line(f"Ergebnisordner: {self._run_dir}")
+            if event.get("mass_kg") is not None and event.get("mesh_path"):
+                self._prepared_mass = (str(Path(event["mesh_path"]).resolve()),
+                                       event.get("density_g_cm3"), event["mass_kg"])
+                self._update_impulse_strength()
+            if event.get("impulse_ns") is not None:
+                self._log_line(f"Einzelimpuls: J = {event['impulse_ns']:.6g} N·s, vollständig je Kontakt-Ereignis.")
             return True
         if kind in {"progress", "trial", "trial_complete"}:
             trial = event.get("completed", event.get("trial"))
@@ -990,6 +1151,9 @@ class DropSimulationWindow(QMainWindow):
                 pass
             if self._mode == "watch" and isinstance(event.get("record"), dict):
                 self._show_trial_record(event["record"])
+            if isinstance(event.get("record"), dict) and event["record"].get("stop_observation"):
+                record = event["record"]
+                self._set_stop_rows([{"trial": record["trial"], "transport_status": record["status"], **record["stop_observation"]}], append=True)
             return True
         if kind == "stability_progress":
             try:
@@ -1093,6 +1257,42 @@ class DropSimulationWindow(QMainWindow):
             except (OSError, ValueError, TypeError) as exc:
                 self._log_line(f"Ergebnistabelle konnte nicht gelesen werden: {exc}")
         self._load_stability(base)
+        self._load_stop_results(base)
+
+    def _load_stop_results(self, base: Path) -> None:
+        candidates = list(base.glob("stop_observations.csv")) + list(base.glob("*/stop_observations.csv"))
+        candidates = [path for path in candidates if path.stat().st_mtime >= self._run_started_at - 2]
+        for path in sorted(candidates, key=lambda item: item.stat().st_mtime, reverse=True):
+            try:
+                with path.open(encoding="utf-8-sig", newline="") as stream:
+                    rows = list(csv.DictReader(stream))
+                self._set_stop_rows(rows)
+                settled = sum(row["status"] == "settled" for row in rows)
+                recovered = sum(row["status"] == "settled" and row["transport_status"] == "unsettled" for row in rows)
+                self.stop_summary_label.setText(f"Nach Bandstopp ruhig: {settled} / {len(rows)}; davon während der Fahrt noch unsettled: {recovered}. Häufigkeiten: laufendes Band.")
+                break
+            except (OSError, ValueError, KeyError) as exc:
+                self._log_line(f"Ruheprüfung konnte nicht gelesen werden: {exc}")
+
+    def _set_stop_rows(self, rows: list[dict], *, append: bool = False) -> None:
+        if not append:
+            self.stop_table.setRowCount(0)
+        for record in rows:
+            index = self.stop_table.rowCount()
+            self.stop_table.insertRow(index)
+            values = [int(record["trial"]) + 1, record.get("transport_status"), record.get("status"), record.get("roadmap_pose_id")]
+            values += [f"{float(record[key]):.2f}" if record.get(key) is not None else "–"
+                       for key in ("orientation_change_deg", "coast_distance_mm")]
+            for column, value in enumerate(values):
+                self.stop_table.setItem(index, column, QTableWidgetItem("–" if value in (None, "") else str(value)))
+            button = QPushButton("Anzeigen")
+            button.clicked.connect(lambda _checked=False, row=dict(record): self._show_pose({
+                "pose_id": f"nach Bandstopp, Versuch {int(row['trial']) + 1}",
+                "representative_quat_xyzw": row.get("final_quat_xyzw"),
+                "representative_pos_chute_mm": row.get("final_pos_chute_mm"),
+                "representative_source": "observed",
+            }))
+            self.stop_table.setCellWidget(index, 6, button)
 
     def _load_preview(self, base: Path) -> None:
         candidates = list(base.glob("preview.json")) + list(base.glob("*/preview.json"))

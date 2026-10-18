@@ -46,8 +46,11 @@ def default_cad_dir() -> Path:
 def model_pair(mesh: Path, cad_dir: Path | None = None) -> tuple[Path, Path]:
     """Require the original, byte-identical STL beside the matching source CAD."""
     root = Path(cad_dir or default_cad_dir()).resolve()
-    files = {p.name.casefold(): p for p in root.iterdir() if p.is_file()}
     stem = mesh.stem
+    nested = next((p for p in root.iterdir() if p.is_dir() and p.name.casefold() == stem.casefold()), None)
+    files = {p.name.casefold(): p for p in root.iterdir() if p.is_file()}
+    if nested is not None:
+        files.update({p.name.casefold(): p for p in nested.iterdir() if p.is_file()})
     stl = files.get(f"{stem}.stl".casefold())
     step = files.get(f"{stem}.step".casefold()) or files.get(f"{stem}.stp".casefold())
     if stl is None or step is None:
@@ -297,6 +300,7 @@ def _build_export(run_dir, repo, target, stl, step, rows, config, summary, manif
     catalogue = {"schema_version": 1, "workpiece": name, "run_id": run_id,
                  "completed_trials": len(rows), "settled_trials": len(settled),
                  "status_counts": dict(Counter(r["status"] for r in rows)),
+                 "belt_stop_observation": summary.get("belt_stop_observation"),
                  "observation_length_mm": config["length_mm"],
                  "frequency_denominator": "all completed drop trials, including unsettled outcomes",
                  "frame": {"handedness": "right", "X": "along belt", "Y": "away from wall",
@@ -316,7 +320,7 @@ def _build_export(run_dir, repo, target, stl, step, rows, config, summary, manif
     _write_json(staged / "manifest.json", portable_manifest)
     fields = ["trial", "seed", "status", "pose_id", "match_status", "roadmap_pose_id",
               "initial_quat_xyzw", "final_quat_xyzw", "final_pos_chute_mm", "sim_time_s",
-              "actual_drop_height_mm", "actual_lateral_mm", "initial_pos_chute_mm", "roughness_impulse_count"]
+              "actual_drop_height_mm", "actual_lateral_mm", "initial_pos_chute_mm", "roughness_impulse_count", "stop_observation"]
     _write_csv(staged / "trials.csv", fields, [{**r, "pose_id": trial_ids.get(r["trial"])} for r in rows])
     _write_csv(staged / "frequencies.csv", ["id", "count", "frequency_percent", "frequency_settled_percent", "ci95_percent"], poses)
     lines = [f"# {name}", "", f"{len(rows)} Fallversuche auf {config['length_mm']:g} mm Strecke; "
@@ -329,6 +333,11 @@ def _build_export(run_dir, repo, target, stl, step, rows, config, summary, manif
         lines.append(f"| {p['id']} | ![{p['id']}]({p['image']}) | {p['count']} | "
                      f"{p['frequency_percent']:.2f} % | {p['ci95_percent'][0]:.2f}–{p['ci95_percent'][1]:.2f} % | "
                      f"{p['frequency_settled_percent']:.2f} % |")
+    if (stop_summary := summary.get("belt_stop_observation", {})).get("enabled"):
+        counts = stop_summary.get("status_counts", {})
+        lines += ["", f"Zusätzliche Ruheprüfung nach Bandstopp: {counts.get('settled', 0)} von "
+                  f"{stop_summary['observed_trials']} beobachteten Teilen ruhig. "
+                  "Fahrhäufigkeiten oben bleiben davon getrennt. Ruheposen stehen als stop_observation in trials.csv."]
     lines += ["", "Ergebnisstatus: " + ", ".join(f"{k}: {v}" for k, v in catalogue["status_counts"].items()), "",
               "Details und Erkennung: [JSON](poses.json), [YAML](poses.yaml). Quaternionen: xyzw, "
               "Bauteil → Rutsche. Symmetrieoperationen werden rechts an die Bauteilrotation multipliziert. "

@@ -197,7 +197,8 @@ class PoseResolver:
             "catalogue_axes": self._catalogue_axes.tolist(),
             "known_pose_ids": list(self.known_pose_ids),
         }
-        temporary = path.with_name(f"{path.stem}.{uuid4().hex}.tmp")
+        # Keep atomic sibling files short for nested Windows batch directories.
+        temporary = path.with_name(f"{uuid4().hex}.tmp")
         temporary.write_text(json.dumps(content, separators=(",", ":")), encoding="utf-8")
         temporary.replace(path)
 

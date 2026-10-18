@@ -6,6 +6,7 @@ import csv
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from contextlib import nullcontext
 
 import pytest
 import trimesh
@@ -46,6 +47,24 @@ def _short_config(source: Path, *, output_dir: Path | None = None) -> RunConfig:
 def _csv_rows(path: Path) -> list[dict[str, str]]:
     with path.open(encoding="utf-8", newline="") as stream:
         return list(csv.DictReader(stream))
+
+
+def test_stop_observation_export_is_separate_from_transport(cube: Path):
+    config = _short_config(cube)
+    config.belt_stop_enabled = True
+    config.compute_stability = False
+    events = []
+    result = run_experiment(config, emit=events.append)
+    row = json.loads((result.run_dir / 'trials.jsonl').read_text())
+    stop = row['stop_observation']
+    exported = _csv_rows(result.run_dir / 'stop_observations.csv')
+    assert len(exported) == 1
+    assert exported[0]['transport_status'] == row['status']
+    assert exported[0]['status'] == stop['status']
+    assert stop['end_time_s'] > row['sim_time_s']
+    assert result.summary['belt_stop_observation']['observed_trials'] == 1
+    emitted = next(e for e in events if e['event'] == 'progress')['record']['stop_observation']
+    assert json.loads(json.dumps(emitted)) == stop
 
 
 def test_short_real_cube_run_persists_unknown_pose_and_outputs(cube: Path) -> None:
@@ -94,12 +113,14 @@ def test_same_seed_repeats_release_and_end_state(cube: Path) -> None:
     assert first.summary["pose_frequencies"] == second.summary["pose_frequencies"]
 
 
-@pytest.mark.parametrize("roughness_enabled", [False, True])
-def test_parallel_drops_match_serial_seeded_results(cube: Path, roughness_enabled: bool) -> None:
+@pytest.mark.parametrize("roughness_enabled,roughness_model", [(False, "longitudinal_traction"),
+                        (True, "longitudinal_traction"), (True, "weight_force"), (True, "weight_impulse")])
+def test_parallel_drops_match_serial_seeded_results(cube: Path, roughness_enabled: bool, roughness_model: str) -> None:
     serial_config = _short_config(cube, output_dir=cube.parent / "serial")
     serial_config.trials = 2
     serial_config.workers = 1
     serial_config.roughness_enabled = roughness_enabled
+    serial_config.roughness_model = roughness_model
     serial_config.belt_speed_variation_mm_s = 3
     serial_config.drop_height_mm = 20
     serial_config.drop_height_spread_mm = 10
@@ -108,6 +129,7 @@ def test_parallel_drops_match_serial_seeded_results(cube: Path, roughness_enable
     parallel_config.trials = 2
     parallel_config.workers = 2
     parallel_config.roughness_enabled = roughness_enabled
+    parallel_config.roughness_model = roughness_model
     parallel_config.belt_speed_variation_mm_s = 3
     parallel_config.drop_height_mm = 20
     parallel_config.drop_height_spread_mm = 10
@@ -142,12 +164,18 @@ def test_parallel_drops_match_serial_seeded_results(cube: Path, roughness_enable
         assert sum(serial.summary["roughness_surface_counts"].values()) == serial.summary["roughness_impulse_count"]
 
 
-def test_visible_series_reuses_viewer_and_matches_headless(cube: Path, monkeypatch) -> None:
+@pytest.mark.parametrize("force_pulses", [False, True, "weight_impulse"])
+def test_visible_series_reuses_viewer_and_matches_headless(cube: Path, monkeypatch, force_pulses) -> None:
     class FakeViewer:
-        def __init__(self):
+        def __init__(self, model):
             self.cam = SimpleNamespace(distance=0.0, lookat=np.zeros(3))
             self.sync_count = 0
             self.running = True
+            self.user_scn = mujoco.MjvScene(model, maxgeom=8)
+            self.marker_seen = False
+
+        def lock(self):
+            return nullcontext()
 
         def __enter__(self):
             return self
@@ -157,6 +185,7 @@ def test_visible_series_reuses_viewer_and_matches_headless(cube: Path, monkeypat
 
         def sync(self):
             self.sync_count += 1
+            self.marker_seen |= self.user_scn.ngeom == 3
 
         def is_running(self):
             return self.running
@@ -164,7 +193,7 @@ def test_visible_series_reuses_viewer_and_matches_headless(cube: Path, monkeypat
     viewers = []
 
     def launch(_model, _data):
-        viewer = FakeViewer()
+        viewer = FakeViewer(_model)
         viewers.append(viewer)
         return viewer
 
@@ -173,6 +202,9 @@ def test_visible_series_reuses_viewer_and_matches_headless(cube: Path, monkeypat
     config = _short_config(cube, output_dir=cube.parent / "watched")
     config.trials = 2
     config.workers = 2
+    if force_pulses:
+        config.roughness_enabled = True
+        config.roughness_model = "weight_impulse" if force_pulses == "weight_impulse" else "weight_force"
     watched = run_experiment(config, visible=True)
     config.output_dir = cube.parent / "unwatched"
     config.workers = 1
@@ -183,6 +215,52 @@ def test_visible_series_reuses_viewer_and_matches_headless(cube: Path, monkeypat
     watched_rows = [json.loads(line) for line in (watched.run_dir / "trials.jsonl").read_text().splitlines()]
     headless_rows = [json.loads(line) for line in (headless.run_dir / "trials.jsonl").read_text().splitlines()]
     assert watched_rows == headless_rows
+    assert viewers[0].marker_seen == bool(force_pulses)
+
+
+def test_complete_impulse_run_persists_mass_scaled_strength_and_zero_duration(cube):
+    config = _short_config(cube)
+    config.roughness_enabled = True
+    config.roughness_model = "weight_impulse"
+    config.roughness_impulse_delta_v_mm_s = 49.05
+    config.compute_stability = False
+    result = run_experiment(config)
+    manifest = json.loads((result.run_dir / "manifest.json").read_text())
+    section = manifest["surface_roughness"]["instantaneous_impulse"]
+    expected = manifest["mass_kg"] * 0.04905
+    assert section["delta_v_free_mm_s"] == 49.05
+    assert section["impulse_ns"] == pytest.approx(expected)
+    assert manifest["surface_roughness"]["weight_force"] is None
+    events = _csv_rows(result.run_dir / "roughness_events.csv")
+    assert events
+    for event in events:
+        assert event["model"] == "weight_impulse"
+        assert float(event["impulse_ns"]) == pytest.approx(expected)
+        assert float(event["configured_impulse_ns"]) == pytest.approx(expected)
+        assert float(event["actual_duration_s"]) == 0
+        assert event["energy_semantics"] == "instantaneous_velocity_jump"
+        assert float(event["scheduling_delay_s"]) <= config.timestep_s + 1e-9
+
+
+def test_weight_force_run_persists_force_duration_impulse_and_contact_response(cube):
+    config = _short_config(cube)
+    config.roughness_enabled = True
+    config.roughness_model = "weight_force"
+    config.contact_damping_ratio = 0.5
+    config.compute_stability = False
+    result = run_experiment(config)
+    manifest = json.loads((result.run_dir / "manifest.json").read_text())
+    assert manifest["contact_response"]["damping_ratio"] == 0.5
+    assert manifest["surface_roughness"]["minimum_sliding_speed_mm_s"] is None
+    events = _csv_rows(result.run_dir / "roughness_events.csv")
+    assert events
+    expected_force = manifest["mass_kg"] * 9.81 * 0.1
+    for event in events:
+        assert event["model"] == "weight_force"
+        assert event["pulse_status"] != "active"
+        assert float(event["force_n"]) == pytest.approx(expected_force)
+        assert float(event["impulse_ns"]) == pytest.approx(expected_force * float(event["actual_duration_s"]))
+        assert event["energy_semantics"] == "applied_force_work_trapezoidal"
 
 
 def test_closing_visible_viewer_keeps_completed_trials(cube: Path, monkeypatch) -> None:
