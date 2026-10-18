@@ -35,6 +35,27 @@ Knopfs gespeichert. Unter Windows liegt die Datei unter
 `$XDG_CONFIG_HOME/dashas-drop-sim/gui_defaults.json` beziehungsweise
 `~/.config/dashas-drop-sim/gui_defaults.json`.
 
+Die vollständigen aktuellen GUI-Vorgaben sind außerdem im Repository unter
+`src/dashas_drop_sim/assets/gui_defaults.json` versioniert: alle 40 Parameter,
+einschließlich Dämpfung 0,19, 500 mm Strecke, Einzelimpulsen während der ersten
+Sekunde und Ruheprüfung nach Bandstopp. Ohne eigene gespeicherte Einstellungen
+verwendet die GUI diese Werte (100 Versuche, vier Prozesse). Explizit gespeicherte
+Werte haben Vorrang. Persönliche absolute Datei- und Ordnerpfade bleiben lokal.
+Die bisherigen Engine-Vorgaben für ältere CLI-Konfigurationen bleiben erhalten.
+
+Vollständige portable CLI-Profile sichern die aktuellen Einstellungen und die
+beiden zuletzt ausgeführten Serien. Die mitgelieferten STL-Dateien sind mit den
+verwendeten Geometrien identisch; Pfade gelten relativ zur jeweiligen JSON-Datei.
+
+| Profil | Bauteil | Versuche | Prozesse | Katalogexport |
+| --- | --- | ---: | ---: | --- |
+| `configs/gui-current.json` | Dk1i | 100 | 4 | Aus |
+| `configs/dk1i-1000.json` | Dk1i | 1.000 | 16 | Aus |
+| `configs/kf1i-10000.json` | Kf1i | 10.000 | 16 | Ins benachbarte `BiBaZu_StableComponentenPoses`, mit Push |
+
+Beispiel: `uv run dashas-drop-sim run --config configs/dk1i-1000.json`.
+Die ursprünglichen Beispiel- und Batchprofile bleiben als eigene Konfigurationen verfügbar.
+
 `--all-extras` installiert die PyQt6-Oberfläche, OpenCascade für STEP-Dateien,
 die fest gepinnte Version von `bibazu_geometry_to_pose` für Roadmap-Vergleiche
 und pytest. Nach der Installation lassen sich GUI und CLI auch mit
@@ -503,6 +524,19 @@ steht der Prozentanteil unter den eingependelten Versuchen dabei. Ausführliche
 Impulsereignisse und Geschwindigkeitsstützpunkte bleiben im lokalen Rohdatenlauf;
 Konfiguration, Seeds, Modellversionen und Software-Commit ermöglichen die Zuordnung.
 
+Bei aktivierter Ruheprüfung nach Bandstopp werden auch die ruhigen stationären
+Endlagen automatisch unter Bauteilsymmetrie und derselben 5°-Toleranz klassifiziert.
+Die bebilderte README zeigt diese Klassen in einem eigenen Abschnitt. Sie stehen
+in `poses_after_stop.json` und `.yaml`, `frequencies_after_stop.csv` sowie
+`trials_after_stop.csv`. Diese Versuchstabelle umfasst auch die weiterhin
+bewegten Teile und die Fälle ohne Ankunft; nur ruhige Endlagen erhalten eine ID.
+Die IDs enthalten `_stop_` und werden in `pose_registry_after_stop.json`
+unabhängig von den Fahrposen gespeichert. Die Hauptanteile beziehen sich auf
+alle Abwürfe; zusätzlich sind die Anteile unter den Ankünften und unter den
+ruhigen Endlagen angegeben. Bei einem erneuten Export bereits berechneter
+Läufe werden bisher fehlende Ruheklassen ergänzt; vorhandene Rohdaten und
+Archive bleiben erhalten. Ein neuer Simulationslauf ist dafür nicht nötig.
+
 Die exportierten Pose-IDs bleiben unabhängig von der Häufigkeit reserviert.
 `pose_registry.json` hält auch frühere, aktuell nicht beobachtete IDs bereit.
 Orientierungen werden unter der erkannten Bauteilsymmetrie gruppiert; die Roadmap
@@ -596,8 +630,8 @@ Die volle Beobachtungsdauer läuft auch nach einem ersten Einpendeln weiter.
 Die Fahrmessung und ihre Häufigkeiten bleiben unverändert. Die Ruheprüfung
 steht separat in `trials.jsonl` als `stop_observation`, in
 `stop_observations.csv` und in `summary.json` unter `belt_stop_observation`.
-Der Katalogexport enthält die Zusatzprüfung in seiner Versuchstabelle und
-eine getrennte Zusammenfassung; sie ersetzt nicht die Fahrposen im Katalog.
+Der Katalogexport enthält die Zusatzprüfung, die klassifizierten Ruheposen
+mit Bildern und eine getrennte Zusammenfassung; sie ersetzt nicht die Fahrposen im Katalog.
 Die Störkurven prüfen weiterhin das laufende Band.
 Für JSON-Konfigurationen heißen die Optionen `belt_stop_enabled`,
 `belt_stop_ramp_s` und `belt_stop_observation_s`; ohne Angabe bleibt die

@@ -395,7 +395,7 @@ class DropSimulationWindow(QMainWindow):
         export_form.addRow("Originale STL-/STEP-Paare", self._path_row(self.catalog_cad_edit,
             lambda: self._choose_catalog_directory(self.catalog_cad_edit)))
         self.catalog_push_check = QCheckBox("Nach jedem Werkstück automatisch nach GitHub pushen")
-        self.catalog_push_check.setChecked(True)
+        self.catalog_push_check.setChecked(bool(_default("catalog_push", True)))
         export_form.addRow(self.catalog_push_check)
         self.catalog_retry_button = QPushButton("Abgeschlossenen Lauf erneut exportieren …")
         self.catalog_retry_button.clicked.connect(self._retry_catalog_export)
@@ -843,8 +843,8 @@ class DropSimulationWindow(QMainWindow):
             self.roughness_check.setChecked(parameters["roughness_enabled"])
         if "belt_stop_enabled" in parameters:
             self.belt_stop_check.setChecked(parameters["belt_stop_enabled"])
-        self.compute_stability_check.setChecked(parameters.get("compute_stability", True))
-        self.catalog_push_check.setChecked(parameters.get("catalog_push", True))
+        self.compute_stability_check.setChecked(parameters.get("compute_stability", _default("compute_stability", True)))
+        self.catalog_push_check.setChecked(parameters.get("catalog_push", _default("catalog_push", True)))
         if "roughness_model" in parameters:
             self.roughness_model_combo.setCurrentIndex(self.roughness_model_combo.findData(parameters["roughness_model"]))
         if "disturbance_levels_mm" in parameters:

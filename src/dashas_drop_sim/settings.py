@@ -10,14 +10,7 @@ from .config import RunConfig
 
 INPUT_KEYS = ("mesh_path", "roadmap_path", "output_dir", "catalog_repo", "catalog_cad_dir")
 PARAMETER_KEYS = frozenset(field.name for field in fields(RunConfig)) - frozenset(INPUT_KEYS)
-GUI_INITIAL_PARAMETERS = {
-    "belt_stop_enabled": True,
-    "roughness_enabled": True,
-    "roughness_model": "weight_impulse",
-    "roughness_impulse_delta_v_mm_s": 49.05,
-    "roughness_force_interval_s": 0.2,
-    "roughness_active_duration_s": 1.0,
-}
+PACKAGED_SETTINGS_PATH = Path(__file__).resolve().parent / "assets" / "gui_defaults.json"
 
 
 def default_settings_path() -> Path:
@@ -57,3 +50,11 @@ def save_defaults(path: Path, parameters: dict, inputs: dict) -> None:
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     temporary.replace(path)
+
+
+# A complete portable snapshot supplies fresh GUI installations. Explicitly
+# saved user values still override these; legacy RunConfig defaults stay intact.
+_packaged_defaults = load_defaults(PACKAGED_SETTINGS_PATH)
+if _packaged_defaults is None:
+    raise RuntimeError(f"Packaged GUI settings are missing: {PACKAGED_SETTINGS_PATH}")
+GUI_INITIAL_PARAMETERS = _packaged_defaults["parameters"]

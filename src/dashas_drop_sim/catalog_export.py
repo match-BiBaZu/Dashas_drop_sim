@@ -121,8 +121,8 @@ def _index(repo: Path) -> None:
              "Simulationsergebnisse unter den je Werkstück dokumentierten Parametern. "
              "Häufigkeiten beziehen sich auf alle abgeschlossenen Fallversuche. "
              "Die reale Stabilität ist damit noch nicht experimentell bestätigt.", "",
-             "| Werkstück | Status | Versuche | Eingependelt | Posen | Strecke |",
-             "| --- | --- | ---: | ---: | ---: | ---: |"]
+             "| Werkstück | Status | Versuche | Fahrt ruhig | Fahrposen | Nach Bandstopp ruhig | Ruheposen | Strecke |",
+             "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |"]
     for name in sorted(names, key=str.casefold):
         path = repo / name / "poses.json"
         row = {"workpiece": name, "status": "pending"}
@@ -131,10 +131,17 @@ def _index(repo: Path) -> None:
             row.update(status="complete", trials=item["completed_trials"],
                        settled=item["settled_trials"], poses=len(item["poses"]),
                        length_mm=item["observation_length_mm"], run_id=item["run_id"])
+            stop_path = path.with_name("poses_after_stop.json")
+            stop_settled, stop_poses = "–", "–"
+            if stop_path.is_file():
+                stop = _read(stop_path)
+                stop_settled, stop_poses = stop["settled_trials"], len(stop["poses"])
+                row.update(stop_observed=stop["observed_trials"], stop_settled=stop_settled,
+                           stop_poses=stop_poses, stop_catalogue=f"{name}/poses_after_stop.json")
             lines.append(f"| [{name}]({name}/README.md) | Vollständig | {row['trials']} | "
-                         f"{row['settled']} | {row['poses']} | {row['length_mm']:g} mm |")
+                         f"{row['settled']} | {row['poses']} | {stop_settled} | {stop_poses} | {row['length_mm']:g} mm |")
         else:
-            lines.append(f"| {name} | Ausstehend | – | – | – | – |")
+            lines.append(f"| {name} | Ausstehend | – | – | – | – | – | – |")
         records.append(row)
     _write_json(repo / "index.json", {"schema_version": 1, "workpieces": records})
     (repo / "README.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -194,6 +201,130 @@ def export_run(run_dir: Path, repo: Path, *, cad_dir: Path | None = None, push: 
         return _export_run(run_dir, repo, cad_dir=cad_dir, push=push)
 
 
+def _write_stop_pose_catalogue(folder: Path, previous: Path, rows: list[dict],
+                               transport: dict, resolver: PoseResolver, stl: Path) -> dict | None:
+    """Classify only settled stationary observations, using independent IDs.
+
+    Keep the measured transport pose/status intact. Symmetry, clustering and
+    images follow the transport catalogue; primary percentages use all drops.
+    """
+    observations = [{"trial": row["trial"], "seed": row["seed"], "transport_status": row["status"],
+                     **(row.get("stop_observation") or {"status": "not_observed"})} for row in rows]
+    observed = [row for row in observations if row["status"] != "not_observed"]
+    if not observed and not (transport.get("belt_stop_observation") or {}).get("enabled"):
+        return None
+    settled = sorted((row for row in observed if row["status"] == "settled"), key=lambda row: row["trial"])
+    labels = resolver.cluster_unmatched([row["final_quat_xyzw"] for row in settled])
+    groups = [[row for row, label in zip(settled, labels) if label == index] for index in sorted(set(labels))]
+    registry_path = previous / "pose_registry_after_stop.json"
+    registry = (_read(registry_path) if registry_path.is_file() else {
+        "schema_version": 1, "mesh_sha256": sha256(stl), "evaluation_phase": "after_belt_stop",
+        "entries": [], "next_id": 1})
+    if registry["mesh_sha256"] != sha256(stl):
+        raise ValueError("Geändertes STL benötigt einen eigenen Namen für die Ruheposen.")
+    descriptor = transport["recognition"]
+    identities = assign_ids(groups, registry, descriptor, transport["workpiece"] + "_stop")
+    poses, trial_ids = [], {}
+    from .pose_image import render_pose_image
+    (folder / "images").mkdir(exist_ok=True)
+    for group, identity in zip(groups, identities):
+        first, count = group[0], len(group)
+        quat, position = first["final_quat_xyzw"], first["final_pos_chute_mm"]
+        transform = np.eye(4)
+        transform[:3, :3] = Rotation.from_quat(quat).as_matrix()
+        transform[:3, 3] = np.asarray(position) - transform[:3, :3] @ transport["geometry"]["center_mass_source_mm"]
+        low, high = wilson_interval(count, len(rows))
+        item = {**identity, "count": count, "frequency_percent": 100 * count / len(rows),
+                "frequency_settled_percent": 100 * count / len(settled),
+                "frequency_observed_percent": 100 * count / len(observed),
+                "ci95_percent": [100 * low, 100 * high], "quaternion_xyzw": quat,
+                "reference_quaternions_xyzw": [list(q) for q in sorted({tuple(row["final_quat_xyzw"]) for row in group})],
+                "position_com_chute_mm": position, "transform_chute_from_source_mm": transform.tolist(),
+                "representative_trial": first["trial"], "trial_ids": [row["trial"] for row in group],
+                "image": f"images/{identity['id']}.png"}
+        image = render_pose_image(stl, transport["geometry"]["center_mass_source_mm"], quat, position)
+        if not image.save(str(folder / item["image"]), "PNG"):
+            raise OSError("Ruheposenbild konnte nicht gespeichert werden.")
+        poses.append(item)
+        trial_ids.update({row["trial"]: identity["id"] for row in group})
+    poses.sort(key=lambda p: (-p["count"], p["id"]))
+    data = {**transport, "evaluation_phase": "after_belt_stop", "settled_trials": len(settled),
+            "observed_trials": len(observed), "not_observed_trials": len(rows) - len(observed),
+            "status_counts": dict(Counter(row["status"] for row in observations)),
+            "transport_status_counts": transport["status_counts"],
+            "frequency_denominator": "all completed drop trials, including non-settled or missing stop observations",
+            "recognition": descriptor, "poses": poses}
+    _write_json(folder / "poses_after_stop.json", data)
+    (folder / "poses_after_stop.yaml").write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    _write_json(folder / "pose_registry_after_stop.json", registry)
+    _write_csv(folder / "frequencies_after_stop.csv", ["id", "count", "frequency_percent",
+        "frequency_settled_percent", "frequency_observed_percent", "ci95_percent"], poses)
+    _write_csv(folder / "trials_after_stop.csv", ["trial", "seed", "transport_status", "status", "pose_id",
+        "final_quat_xyzw", "final_pos_chute_mm", "final_qpos", "end_time_s", "first_settled_s",
+        "final_floor_contact", "final_wall_contact", "coast_distance_mm", "orientation_change_deg"],
+        [{**row, "pose_id": trial_ids.get(row["trial"])} for row in observations])
+    return data
+
+
+def _stop_pose_readme(data: dict) -> list[str]:
+    lines = ["", "## Ruheposen nach Bandstopp", "",
+             f"**{data['settled_trials']} ruhige Endlagen, {len(data['poses'])} Pose-Klassen.** "
+             "Diese Bilder zeigen die gemessenen Orientierungen nach der Ruheprüfung.", "",
+             f"Die Hauptanteile beziehen sich auf alle {data['completed_trials']} Abwürfe; "
+             f"die letzte Spalte auf die {data['settled_trials']} ruhigen Endlagen. "
+             "Drehungen um eine kontinuierliche Bauteilsymmetrieachse gelten als dieselbe Pose. "
+             "Die Achsenrichtung bleibt berücksichtigt; entgegengesetzte Bauteilseiten werden getrennt.", "",
+             "| Ruhepose | Bild | Anzahl | Anteil aller Abwürfe | 95-%-Intervall | Anteil ruhiger Endlagen |",
+             "| --- | --- | ---: | ---: | ---: | ---: |"]
+    for pose in data["poses"]:
+        lines.append(f"| {pose['id']} | ![{pose['id']}]({pose['image']}) | {pose['count']} | "
+                     f"{pose['frequency_percent']:.2f} % | {pose['ci95_percent'][0]:.2f}–{pose['ci95_percent'][1]:.2f} % | "
+                     f"{pose['frequency_settled_percent']:.2f} % |")
+    lines += ["", "Ruheposen und Erkennung: [JSON](poses_after_stop.json), [YAML](poses_after_stop.yaml). "
+              "Häufigkeiten: [CSV](frequencies_after_stop.csv). "
+              "Zuordnung aller Versuche: [CSV](trials_after_stop.csv). "
+              "Fahrmessung und Fahrposen bleiben separat in poses.json und trials.csv.", ""]
+    return lines
+
+
+def _upgrade_stop_catalogue(run_dir: Path, repo: Path, target: Path, rows: list[dict]) -> None:
+    scratch = (repo / ".git" / "catalog-staging" / uuid4().hex).resolve()
+    if not scratch.is_relative_to((repo / ".git" / "catalog-staging").resolve()):
+        raise ValueError("Invalid catalogue staging directory")
+    staged = scratch / target.name
+    shutil.copytree(target, staged)
+    (staged / ".gitattributes").write_text("* -text\n", encoding="utf-8")
+    transport = _read(staged / "poses.json")
+    stl = staged / transport["geometry"]["stl"]
+    resolver = PoseResolver(stl, None, cache_dir=run_dir.parent / ".pose_cache")
+    descriptor = transport["recognition"]
+    resolver._symmetry_quats = np.asarray(descriptor["symmetry_quaternions_xyzw"])
+    axis = descriptor["continuous_axis_part"]
+    resolver._continuous_axis = None if axis is None else np.asarray(axis)
+    resolver.cluster_tolerance_deg = descriptor["tolerance_deg"]
+    stop = _write_stop_pose_catalogue(staged, target, rows, transport, resolver, stl)
+    if stop is None:
+        raise ValueError("Der Lauf enthält keine aktivierte Ruheprüfung.")
+    transport["after_stop_catalogue"] = "poses_after_stop.json"
+    _write_json(staged / "poses.json", transport)
+    (staged / "poses.yaml").write_text(yaml.safe_dump(transport, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    readme = (staged / "README.md").read_text(encoding="utf-8")
+    title, body = readme.split("\n", 1)
+    readme = (title + f"\n\n**Nach Bandstopp: {stop['settled_trials']} ruhige Endlagen in "
+              f"[{len(stop['poses'])} bebilderten Pose-Klassen](#ruheposen-nach-bandstopp).**\n" + body)
+    (staged / "README.md").write_text(readme + "\n".join(_stop_pose_readme(stop)), encoding="utf-8")
+    _write_json(staged / "files.sha256.json", {p.relative_to(staged).as_posix(): sha256(p)
+                for p in sorted(staged.rglob("*")) if p.is_file() and p.name != "files.sha256.json"})
+    _verify_files(staged)
+    target.rename(scratch / "previous")
+    try:
+        staged.rename(target)
+    except BaseException:
+        (scratch / "previous").rename(target)
+        raise
+    shutil.rmtree(scratch)
+
+
 def _export_run(run_dir: Path, repo: Path, *, cad_dir: Path | None = None, push: bool = True) -> dict:
     run_dir, repo = Path(run_dir).resolve(), Path(repo).resolve()
     if Path(git(repo, "rev-parse", "--show-toplevel")).resolve() != repo:
@@ -227,6 +358,9 @@ def _export_run(run_dir: Path, repo: Path, *, cad_dir: Path | None = None, push:
         if target.exists() and not (target / "pose_registry.json").is_file():
             raise ValueError(f"Der vorhandene Ordner {name} gehört nicht zum Posenkatalog.")
         _build_export(run_dir, repo, target, stl, step, rows, config, summary, manifest, run_id)
+    elif config.get("belt_stop_enabled") and not (target / "poses_after_stop.json").is_file():
+        # Preserve original run data and supplementary archives when upgrading.
+        _upgrade_stop_catalogue(run_dir, repo, target, rows)
     _index(repo)
     git(repo, "add", "--", name, "README.md", "index.json")
     if git(repo, "diff", "--cached", "--name-only"):
@@ -263,6 +397,7 @@ def _build_export(run_dir, repo, target, stl, step, rows, config, summary, manif
         raise ValueError("Invalid catalogue staging directory")
     staged = scratch / name
     staged.mkdir(parents=True)
+    (staged / ".gitattributes").write_text("* -text\n", encoding="utf-8")
     (staged / "images").mkdir()
     shutil.copyfile(stl, staged / f"{name}.stl")
     shutil.copyfile(step, staged / f"{name}.step")
@@ -308,6 +443,9 @@ def _build_export(run_dir, repo, target, stl, step, rows, config, summary, manif
                               "stl_sha256": sha256(stl), "step_sha256": sha256(step),
                               "center_mass_source_mm": manifest["center_mass_source_mm"]},
                  "recognition": descriptor, "poses": poses}
+    stop_catalogue = _write_stop_pose_catalogue(staged, target, rows, catalogue, resolver, stl)
+    if stop_catalogue is not None:
+        catalogue["after_stop_catalogue"] = "poses_after_stop.json"
     _write_json(staged / "poses.json", catalogue)
     (staged / "poses.yaml").write_text(yaml.safe_dump(catalogue, allow_unicode=True, sort_keys=False), encoding="utf-8")
     _write_json(staged / "pose_registry.json", registry)
@@ -342,6 +480,8 @@ def _build_export(run_dir, repo, target, stl, step, rows, config, summary, manif
         lines += ["", f"Zusätzliche Ruheprüfung nach Bandstopp: {counts.get('settled', 0)} von "
                   f"{stop_summary['observed_trials']} beobachteten Teilen ruhig. "
                   "Fahrhäufigkeiten oben bleiben davon getrennt. Ruheposen stehen als stop_observation in trials.csv."]
+    if stop_catalogue is not None:
+        lines += _stop_pose_readme(stop_catalogue)
     lines += ["", "Ergebnisstatus: " + ", ".join(f"{k}: {v}" for k, v in catalogue["status_counts"].items()), "",
               "Details und Erkennung: [JSON](poses.json), [YAML](poses.yaml). Quaternionen: xyzw, "
               "Bauteil → Rutsche. Symmetrieoperationen werden rechts an die Bauteilrotation multipliziert. "

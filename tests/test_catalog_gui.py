@@ -16,7 +16,7 @@ from dashas_drop_sim.gui import DropSimulationWindow
 from dashas_drop_sim.pose_image import render_pose_image
 
 
-def test_catalogue_dropdown_keeps_browse_path_and_1300_mm_default(tmp_path: Path) -> None:
+def test_catalogue_dropdown_keeps_browse_path_and_saved_500_mm_default(tmp_path: Path) -> None:
     app = QApplication.instance() or QApplication([])
     window = DropSimulationWindow(settings_path=tmp_path / "gui_defaults.json")
     try:
@@ -27,7 +27,7 @@ def test_catalogue_dropdown_keeps_browse_path_and_1300_mm_default(tmp_path: Path
         assert index > 0
         window.catalog_combo.setCurrentIndex(index)
         assert window.mesh_edit.text() == str(models["Qk1a"])
-        assert window.length_spin.value() == 1300
+        assert window.length_spin.value() == 500
         assert window.workers_spin.value() >= 1
         assert window.preview_button.text() == "Falltests sichtbar starten"
     finally:
