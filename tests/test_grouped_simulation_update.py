@@ -55,12 +55,12 @@ def test_grouping_and_contact_controls_survive_gui_restart(tmp_path):
 def test_grouped_run_with_impulses_and_belt_stop_resumes(tmp_path):
     mesh = tmp_path / "cube.stl"
     trimesh.creation.box(extents=[20, 20, 20]).export(mesh)
-    config = RunConfig(
-        mesh_path=mesh, output_dir=tmp_path / "results", trials=1, workers=1,
-        drop_height_mm=0, length_mm=500, grouping_enabled=True,
-        grouping_barrier_mm=.005, disturbance_levels_mm=(0, .005),
-        **GUI_INITIAL_PARAMETERS,
-    )
+    config = RunConfig(mesh_path=mesh, output_dir=tmp_path / "results", **{
+        **GUI_INITIAL_PARAMETERS, "trials": 1, "workers": 1,
+        "drop_height_mm": 0, "length_mm": 500, "grouping_enabled": True,
+        "compute_stability": True, "grouping_barrier_mm": .005,
+        "disturbance_levels_mm": (0, .005),
+    })
     result = run_experiment(config)
     assert result.summary["group_assessment_complete"]
     assert result.summary["settled_trials"] == 1

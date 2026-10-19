@@ -12,8 +12,9 @@ import trimesh
 import yaml
 
 from dashas_drop_sim.catalog_export import (
-    assign_ids, export_run, git, recognize_pose, sha256,
+    assign_ids, export_run, git, recognize_pose, sha256, _write_stop_pose_catalogue,
 )
+from dashas_drop_sim.pose_matching import PoseResolver
 from dashas_drop_sim.catalog_batch import run_with_catalog
 from dashas_drop_sim.config import RunConfig
 from dashas_drop_sim.runner import run_experiment
@@ -82,6 +83,81 @@ def test_export_preserves_separate_stop_observation(catalogue):
         rows = list(csv.DictReader(stream))
     assert json.loads(rows[0]['stop_observation'])['final_belt_speed_mm_s'] == 0
     assert 'Ruheprüfung nach Bandstopp' in (repo / 'Cube/README.md').read_text(encoding='utf-8')
+    stop = json.loads((repo / 'Cube/poses_after_stop.json').read_text())
+    assert stop == yaml.safe_load((repo / 'Cube/poses_after_stop.yaml').read_text(encoding='utf-8'))
+    assert stop['evaluation_phase'] == 'after_belt_stop'
+    assert stop['completed_trials'] == stop['observed_trials'] == stop['settled_trials'] == 2
+    assert sum(p['count'] for p in stop['poses']) == 2
+    for pose in stop['poses']:
+        assert pose['id'].startswith('Cube_stop_')
+        assert (repo / 'Cube' / pose['image']).is_file()
+        assert recognize_pose(pose['quaternion_xyzw'], stop)['pose_id'] == pose['id']
+    index = json.loads((repo / 'index.json').read_text())
+    entry = next(row for row in index['workpieces'] if row['workpiece'] == 'Cube')
+    assert entry['stop_settled'] == 2
+    assert entry['stop_poses'] == len(stop['poses'])
+
+
+def test_stop_classes_use_symmetry_and_exclude_unsettled_or_missing_observations(catalogue):
+    config, run, repo, cad = catalogue
+    export_run(run.run_dir, repo, cad_dir=cad, push=False)
+    transport = json.loads((repo / 'Cube/poses.json').read_text())
+    transport['recognition']['continuous_axis_part'] = [0, 0, 1]
+    resolver = PoseResolver(config.mesh_path, None)
+    resolver._continuous_axis = np.array([0, 0, 1])
+    rows = []
+    quats = list(Rotation.from_euler('z', [[0], [70], [140]], degrees=True).as_quat())
+    quats += [Rotation.from_euler('x', 90, degrees=True).as_quat()]
+    for index, quat in enumerate(quats):
+        rows.append({'trial': index, 'seed': index, 'status': 'unsettled', 'stop_observation': {
+            'status': 'settled', 'final_quat_xyzw': quat.tolist(), 'final_pos_chute_mm': [100, 10, 10]}})
+    rows += [{'trial': 4, 'seed': 4, 'status': 'unsettled', 'stop_observation': {
+        'status': 'unsettled', 'final_quat_xyzw': quats[0].tolist(), 'final_pos_chute_mm': [100, 10, 10]}},
+        {'trial': 5, 'seed': 5, 'status': 'stalled', 'stop_observation': None}]
+    transport['completed_trials'] = len(rows)
+    folder = repo.parent / 'stop-only'
+    folder.mkdir()
+    result = _write_stop_pose_catalogue(folder, folder, rows, transport, resolver, config.mesh_path)
+    assert sorted(p['count'] for p in result['poses']) == [1, 3]
+    assert result['observed_trials'] == 5 and result['not_observed_trials'] == 1
+    assert result['settled_trials'] == 4
+    assert sum(p['frequency_percent'] for p in result['poses']) == pytest.approx(100 * 4 / 6)
+    assert sum(p['frequency_settled_percent'] for p in result['poses']) == pytest.approx(100)
+    import csv
+    with (folder / 'trials_after_stop.csv').open(newline='') as stream:
+        assignments = list(csv.DictReader(stream))
+    assert not assignments[4]['pose_id'] and not assignments[5]['pose_id']
+    assert assignments[5]['status'] == 'not_observed'
+
+
+def test_retry_upgrades_legacy_stop_export_and_preserves_raw_archive(catalogue):
+    config, _run, repo, cad = catalogue
+    config.belt_stop_enabled = True
+    run = run_experiment(config)
+    export_run(run.run_dir, repo, cad_dir=cad, push=False)
+    folder = repo / 'Cube'
+    data = json.loads((folder / 'poses.json').read_text())
+    data.pop('after_stop_catalogue')
+    (folder / 'poses.json').write_text(json.dumps(data))
+    (folder / 'poses.yaml').write_text(yaml.safe_dump(data))
+    for name in ('poses_after_stop.json', 'poses_after_stop.yaml', 'pose_registry_after_stop.json',
+                 'frequencies_after_stop.csv', 'trials_after_stop.csv'):
+        (folder / name).unlink()
+    for path in (folder / 'images').glob('Cube_stop_*.png'):
+        path.unlink()
+    archive = folder / 'simulation_results.zip'
+    archive.write_bytes(b'original complete run archive fixture')
+    before_trials = sha256(folder / 'trials.csv')
+    checks = {p.relative_to(folder).as_posix(): sha256(p) for p in folder.rglob('*')
+              if p.is_file() and p.name != 'files.sha256.json'}
+    (folder / 'files.sha256.json').write_text(json.dumps(checks))
+    git(repo, 'add', '--', 'Cube')
+    git(repo, 'commit', '-m', 'Legacy stationary observations without pose classes')
+    outcome = export_run(run.run_dir, repo, cad_dir=cad, push=False)
+    assert archive.read_bytes() == b'original complete run archive fixture'
+    assert sha256(folder / 'trials.csv') == before_trials
+    assert json.loads((folder / 'poses_after_stop.json').read_text())['settled_trials'] == 2
+    assert export_run(run.run_dir, repo, cad_dir=cad, push=False)['commit'] == outcome['commit']
 
 
 def test_cancelled_run_and_modified_geometry_preserve_previous_catalogue(catalogue):
